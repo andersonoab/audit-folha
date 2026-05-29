@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auditoria de Folha — Igarapé Digital</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+</head>
+<body>
+
+<!-- ========================= HEADER ========================= -->
+<header class="app-header">
+  <div class="header-title">Auditoria de Folha — Confronto Calculada vs Implantadas</div>
+  <div class="header-sub">Igarapé Digital | Análise de Payroll | Padrão DP</div>
+</header>
+
+<div class="app-body">
+
+<!-- ========================= SIDEBAR ========================= -->
+<aside class="sidebar">
+
+  <div class="sidebar-section">
+    <div class="sidebar-label-h">Configuração</div>
+    <button class="btn-upload" id="btnUpload">Carregar arquivo CSV...</button>
+    <input type="file" id="fileInput" accept=".csv" style="display:none">
+    <div class="file-name" id="fileName">(nenhum arquivo carregado)</div>
+    <div class="hint-text" id="lblCache"></div>
+    <div class="hint-text">Exporte do ADP em CSV, separador ponto-e-vírgula, decimal vírgula, codificação latin-1.</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-label-h">Filtros</div>
+    <div id="filtroEmpresa"></div>
+    <div id="filtroProcesso"></div>
+
+    <label class="sidebar-label">Mês-alvo (folha calculada)</label>
+    <select id="comboMesAlvo" class="select-ctrl" disabled></select>
+
+    <label class="sidebar-label" style="margin-top:10px">Meses de baseline (folhas implantadas)</label>
+    <div class="baseline-frame" id="baselineFrame"></div>
+
+    <div class="switch-row" style="margin-top:9px">
+      <span class="switch-label">Excluir desligados da análise</span>
+      <label class="toggle">
+        <input type="checkbox" id="switchDesligados" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <button class="btn-secondary" id="btnFiltroVerbas" disabled>Filtrar verbas incluídas...</button>
+    <div class="hint-text" id="lblVerbasStatus" style="margin-top:3px">(todas as verbas incluídas)</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-label-h">Parâmetros de outlier</div>
+    <select id="comboMetodo" class="select-ctrl"></select>
+    <div class="hint-text" id="lblMetodoDesc" style="margin-top:4px"></div>
+
+    <div style="margin-top:10px">
+      <label class="sidebar-label">Materialidade ISA 320 (% folha total)</label>
+      <div class="mat-row">
+        <input type="range" id="sliderMat" min="0" max="5" step="0.1" value="1.0" class="slider-range">
+        <span id="lblMatValor" class="mat-val">1,0%</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <div class="sidebar-label-h">Dados e privacidade</div>
+
+    <div class="switch-row">
+      <span class="switch-label">Anonimizar nomes e matrículas</span>
+      <label class="toggle">
+        <input type="checkbox" id="switchAnonimizar">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="hint-text" style="margin-top:3px">Substitui nomes reais por Colaborador 001, 002… nas tabelas e gráficos.</div>
+
+    <button class="btn-secondary" id="btnResetDados" style="display:none;margin-top:10px;color:#7D0041;border-color:#7D0041">
+      Limpar dados salvos
+    </button>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="sidebar-section">
+    <button class="btn-primary" id="btnReprocessar" disabled>Reprocessar auditoria</button>
+    <div class="stats-text" id="lblStats"></div>
+  </div>
+
+</aside>
+
+<!-- ========================= MAIN CONTENT ========================= -->
+<main class="main-content">
+
+  <!-- Tab nav -->
+  <div class="tab-nav" id="tabNav">
+    <button class="tab-btn active" data-tab="visaoGeral">Visão Geral</button>
+    <button class="tab-btn" data-tab="headcount">Headcount</button>
+    <button class="tab-btn" data-tab="outliers">Outliers</button>
+    <button class="tab-btn" data-tab="tabela">Tabela &amp; Drill-down</button>
+    <button class="tab-btn" data-tab="verbasZeradas">Verbas Zeradas</button>
+    <button class="tab-btn" data-tab="analiseVerbas">Análise de Verbas</button>
+    <button class="tab-btn" data-tab="exportar">Exportar</button>
+    <button class="tab-btn" data-tab="ajuda" style="margin-left:auto;color:#0083CA">Ajuda / CSV</button>
+  </div>
+
+  <!-- ========================= ABA: Visão Geral ========================= -->
+  <div class="tab-pane active" id="tab-visaoGeral">
+    <div class="state-inicial" id="stateInicial">
+      <div class="state-msg">Carregue o arquivo CSV no painel lateral para iniciar a auditoria.</div>
+    </div>
+    <div class="tab-content-inner" id="vgContent" style="display:none">
+      <div class="cards-row">
+        <div class="metric-card" id="cardPGTO"></div>
+        <div class="metric-card" id="cardDESC"></div>
+        <div class="metric-card" id="cardLIQ"></div>
+        <div class="metric-card" id="card9950"></div>
+      </div>
+      <div class="aviso-row" id="avisoDesligados"></div>
+      <div class="section-title">Evolução mensal — PGTO, DESC e Líquido</div>
+      <div class="chart-container" style="height:380px"><canvas id="chartEvolucao"></canvas></div>
+      <div class="two-col">
+        <div>
+          <div class="section-title">Conciliação no mês-alvo</div>
+          <div class="chart-container" style="height:320px"><canvas id="chartConciliacao"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title">Distribuição de status</div>
+          <div class="chart-container" style="height:320px"><canvas id="chartStatus"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Headcount ========================= -->
+  <div class="tab-pane" id="tab-headcount">
+    <div class="tab-content-inner">
+      <div class="section-title">Headcount e salário médio — verba 0020</div>
+      <div class="hint-text" style="margin-bottom:12px">HC = matrículas distintas com verba 0020 &gt; 0 no mês. Salário médio = total ÷ HC.</div>
+      <div class="cards-row">
+        <div class="metric-card" id="cardHC"></div>
+        <div class="metric-card" id="cardSal"></div>
+        <div class="metric-card" id="cardTotal20"></div>
+      </div>
+      <div class="chart-container" style="height:440px"><canvas id="chartHC"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Outliers ========================= -->
+  <div class="tab-pane" id="tab-outliers">
+    <div class="tab-content-inner">
+      <div class="section-title">Dispersão do líquido por funcionário — Baseline vs Mês-alvo</div>
+      <div class="hint-text" style="margin-bottom:10px">Pontos vermelhos = fora do padrão. Linha contínua = y=x. Linhas tracejadas = bandas ±30%. Escala logarítmica.</div>
+      <div class="chart-container" style="height:520px"><canvas id="chartDispersao"></canvas></div>
+      <div class="section-title" style="margin-top:4px">Top outliers — maior impacto absoluto em R$</div>
+      <div class="chart-container" style="height:480px"><canvas id="chartTopOutliers"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Tabela & Drill-down ========================= -->
+  <div class="tab-pane" id="tab-tabela">
+    <div class="tab-content-inner">
+      <div class="section-title">Tabela detalhada por funcionário</div>
+      <div class="filtros-row">
+        <div class="filtro-item">
+          <label>Status:</label>
+          <select id="comboStatusTab" class="select-ctrl-sm"></select>
+        </div>
+        <div class="filtro-item">
+          <label>Ordenar por:</label>
+          <select id="comboOrdemTab" class="select-ctrl-sm">
+            <option value="VAR_ABS">Var R$ (impacto)</option>
+            <option value="VAR_PCT">Var % (variação)</option>
+            <option value="LIQUIDO_ALVO">Líquido alvo</option>
+            <option value="MEDIA_BASELINE">Média baseline</option>
+          </select>
+        </div>
+        <div class="filtro-item">
+          <label>Buscar:</label>
+          <input type="text" id="entryBusca" placeholder="nome ou matrícula" class="input-ctrl-sm">
+        </div>
+        <button class="btn-sm btn-primary" id="btnAplicarTab">Aplicar</button>
+        <button class="btn-sm btn-secondary-sm" id="btnLimparTab">Limpar</button>
+      </div>
+      <div class="table-wrap" style="max-height:360px">
+        <table class="data-table" id="tabelaPrincipal">
+          <thead><tr>
+            <th data-col="Matrícula">Mat.</th>
+            <th data-col="Nome">Nome</th>
+            <th data-col="MEDIA_BASELINE">Média Baseline</th>
+            <th data-col="LIQUIDO_ALVO">Líquido Alvo</th>
+            <th data-col="VAR_ABS">Var R$</th>
+            <th data-col="VAR_PCT">Var %</th>
+            <th data-col="Z_SCORE">Z-score</th>
+            <th data-col="STATUS">Status</th>
+            <th>Auditoria</th>
+          </tr></thead>
+          <tbody id="tabelaBody"></tbody>
+        </table>
+      </div>
+      <div class="count-label" id="countTabela"></div>
+
+      <!-- Drill-down -->
+      <div class="section-title" style="margin-top:18px">Drill-down do funcionário selecionado</div>
+      <div class="drill-info" id="drillInfo">(selecione um funcionário na tabela acima)</div>
+      <div class="drill-grid">
+        <div>
+          <div class="chart-container" style="height:320px"><canvas id="chartDrill"></canvas></div>
+        </div>
+        <div>
+          <div class="filtros-row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
+            <div class="filtro-item"><label>C.R.:</label>
+              <select id="comboDrillCR" class="select-ctrl-sm"><option>(todos)</option></select></div>
+            <div class="filtro-item"><label>Classe:</label>
+              <select id="comboDrillClasse" class="select-ctrl-sm"><option>(todos)</option></select></div>
+            <div class="filtro-item"><label>Processo:</label>
+              <select id="comboDrillProc" class="select-ctrl-sm"><option>(todos)</option></select></div>
+            <div class="filtro-item"><label>Verba:</label>
+              <input type="text" id="entryDrillVerba" placeholder="código ou descrição" class="input-ctrl-sm" style="width:160px"></div>
+            <button class="btn-sm btn-secondary-sm" id="btnLimparDrill">Limpar</button>
+          </div>
+          <div class="table-wrap" style="max-height:270px">
+            <table class="data-table" id="tabelaDrill" style="font-size:11px">
+              <thead><tr>
+                <th>Código</th><th>Descrição</th><th>Clas.</th>
+                <th>C.R.</th><th>Processo</th>
+                <th id="thM3">M-3</th><th id="thM2">M-2</th><th id="thM1">M-1</th>
+                <th id="thAlvo">Alvo</th>
+              </tr></thead>
+              <tbody id="drillBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Verbas Zeradas ========================= -->
+  <div class="tab-pane" id="tab-verbasZeradas">
+    <div class="tab-content-inner">
+      <div class="section-title">Verbas regulares zeradas no mês-alvo</div>
+      <div class="hint-text" style="margin-bottom:14px">
+        Verbas que apareceram em ao menos 3 meses da baseline (valor &ge; R$&nbsp;500) e zeraram completamente no mês-alvo.
+      </div>
+      <div class="two-col">
+        <div>
+          <div class="section-title-sm">PGTO regulares zeradas</div>
+          <div class="chart-container" style="height:380px"><canvas id="chartZeradosPGTO"></canvas></div>
+        </div>
+        <div>
+          <div class="section-title-sm">DESC regulares zeradas</div>
+          <div class="chart-container" style="height:380px"><canvas id="chartZeradosDESC"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Análise de Verbas ========================= -->
+  <div class="tab-pane" id="tab-analiseVerbas">
+    <div class="tab-content-inner">
+      <div class="section-title">Análise de Verbas — impacto e detalhe por código</div>
+      <div class="hint-text" style="margin-bottom:10px">Ranking por impacto absoluto no mês-alvo vs média baseline. Verbas excluídas do cálculo aparecem em cinza.</div>
+      <div class="chart-container" style="height:500px"><canvas id="chartTopVerbas"></canvas></div>
+
+      <div class="section-title" style="margin-top:6px">Detalhe por verba — HC e valor médio mensal</div>
+      <div class="verbas-sel-area">
+        <div class="filtros-row">
+          <div class="filtro-item">
+            <label>Buscar verba:</label>
+            <input type="text" id="entryBuscaVerba" placeholder="código, descrição ou classe" class="input-ctrl-sm" style="width:240px">
+          </div>
+          <button class="btn-sm btn-primary" onclick="APP.selecionarClasseVerbas('PGTO')">PGTO</button>
+          <button class="btn-sm btn-secondary-sm" onclick="APP.selecionarClasseVerbas('DESC')">DESC</button>
+          <button class="btn-sm btn-secondary-sm" onclick="APP.selecionarClasseVerbas('OUTRO')">OUTRO</button>
+          <button class="btn-sm btn-secondary-sm" onclick="APP.limparSelecaoVerbas()">Limpar seleção</button>
+        </div>
+        <div class="listbox-container">
+          <select id="listboxVerbas" class="verbas-listbox" size="7" multiple></select>
+          <div class="verbas-info" id="verbasInfo">(nenhuma selecionada)</div>
+        </div>
+      </div>
+
+      <div class="cards-row" style="margin-top:10px">
+        <div class="metric-card" id="cardAVHC"></div>
+        <div class="metric-card" id="cardAVTotal"></div>
+        <div class="metric-card" id="cardAVMedia"></div>
+        <div class="metric-card" id="cardAVStatus"></div>
+      </div>
+
+      <div class="chart-container" style="height:400px"><canvas id="chartAVHC"></canvas></div>
+
+      <div class="section-title" style="margin-top:4px">Colaboradores da verba selecionada</div>
+      <div class="filtros-row">
+        <div class="filtro-item"><label>Status liq.:</label>
+          <select id="comboColabStatus" class="select-ctrl-sm"><option>(todos)</option></select></div>
+        <div class="filtro-item"><label>Buscar:</label>
+          <input type="text" id="entryColabBusca" placeholder="nome ou matrícula" class="input-ctrl-sm"></div>
+        <button class="btn-sm btn-primary" id="btnAplicarColab">Aplicar</button>
+        <button class="btn-sm btn-secondary-sm" id="btnLimparColab">Limpar</button>
+      </div>
+      <div class="table-wrap" style="max-height:300px">
+        <table class="data-table" id="tabelaColab">
+          <thead><tr>
+            <th>Mat.</th><th>Nome</th><th>Status Liq.</th>
+            <th>Valor Mês</th><th>Média Verba</th>
+            <th>Var R$</th><th>Var %</th><th>Líquido Alvo</th><th>Auditoria</th>
+          </tr></thead>
+          <tbody id="colabBody"></tbody>
+        </table>
+      </div>
+      <div class="count-label" id="countColab"></div>
+
+      <!-- Drill do colaborador selecionado -->
+      <div class="section-title" style="margin-top:16px">Evolução do líquido — colaborador selecionado</div>
+      <div class="drill-info" id="colabDrillInfo">(selecione um colaborador na tabela acima)</div>
+      <div class="chart-container" style="height:300px"><canvas id="chartColabDrill"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Exportar ========================= -->
+  <div class="tab-pane" id="tab-exportar">
+    <div class="tab-content-inner">
+      <div class="section-title">Exportar relatório Excel completo</div>
+      <p style="color:#444;font-size:13px;line-height:1.8;margin-bottom:20px;max-width:640px">
+        Gera um arquivo <strong>.xlsx</strong> com 5 abas:<br>
+        &bull; <strong>Resumo_Mensal</strong> — PGTO, DESC, Líquido e Verba 9950 por mês<br>
+        &bull; <strong>Liquido_Funcionario</strong> — matrícula, baseline, líquido alvo, variação, status e auditoria<br>
+        &bull; <strong>Verbas_PGTO_Zeradas</strong> — verbas de pagamento que zeraram no mês-alvo<br>
+        &bull; <strong>Verbas_DESC_Zeradas</strong> — descontos que zeraram no mês-alvo<br>
+        &bull; <strong>Parametros</strong> — método, configuração e estatísticas utilizados
+      </p>
+      <button class="btn-primary" id="btnExportar" disabled style="width:auto;display:inline-block;padding:11px 28px;font-size:14px">
+        Salvar relatório Excel...
+      </button>
+      <div class="export-status" id="exportStatus"></div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Ajuda / Layout CSV ========================= -->
+  <div class="tab-pane" id="tab-ajuda">
+    <div class="tab-content-inner">
+
+      <!-- Cabeçalho -->
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px">
+        <div>
+          <div class="section-title" style="margin-bottom:2px">Layout do arquivo CSV — Referência de formato</div>
+          <div class="hint-text" style="font-size:11px">Para preenchimento manual ou exportação do ADP. Separe por <code style="background:#F0F4F7;padding:1px 4px;border-radius:2px">;</code>, decimal com vírgula, codificação ISO-8859-1.</div>
+        </div>
+        <button class="btn-primary" onclick="APP.downloadModeloCSV()" style="width:auto;display:inline-block;padding:9px 20px;font-size:13px;flex-shrink:0">
+          Baixar modelo CSV...
+        </button>
+      </div>
+
+      <!-- Configurações do arquivo -->
+      <div class="section-title">Configurações do arquivo</div>
+      <div class="table-wrap" style="margin-bottom:16px">
+        <table class="data-table">
+          <thead><tr><th>Parâmetro</th><th>Valor</th><th>Exemplo</th></tr></thead>
+          <tbody>
+            <tr><td>Separador de colunas</td><td><code>;</code> ponto e vírgula</td><td>Empresa<strong>;</strong>Processo<strong>;</strong>Matrícula...</td></tr>
+            <tr><td>Separador decimal</td><td><code>,</code> vírgula</td><td>3.500<strong>,</strong>00</td></tr>
+            <tr><td>Separador de milhar</td><td><code>.</code> ponto</td><td>13<strong>.</strong>500,00</td></tr>
+            <tr><td>Codificação</td><td>ISO-8859-1 (latin-1)</td><td>Padrão do ADP Workforce Now</td></tr>
+            <tr><td>Valores zerados</td><td>0,00</td><td>Não deixar célula vazia</td></tr>
+            <tr><td>Primeira linha</td><td>Cabeçalho com nomes das colunas</td><td>Obrigatória</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Colunas -->
+      <div class="section-title">Colunas obrigatórias</div>
+      <div style="background:#FFF3CD;border-left:4px solid #FFC107;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:10px">
+        Cada linha representa <strong>uma verba de um colaborador</strong>. O mesmo colaborador terá múltiplas linhas (uma por verba).
+      </div>
+      <div class="table-wrap" style="margin-bottom:16px">
+        <table class="data-table">
+          <thead><tr><th>#</th><th>Coluna</th><th>Exemplo</th><th>Descrição</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><strong>Empresa</strong></td><td>EMPRESA ALPHA S.A.</td><td>Razão social. Usado para filtrar por empresa no painel lateral.</td></tr>
+            <tr><td>2</td><td><strong>Processo</strong></td><td>MENSAL</td><td>Tipo de folha: MENSAL, FERIAS, RESCIS, RESCOM, ADIANT…</td></tr>
+            <tr><td>3</td><td><strong>Matrícula</strong></td><td>00001</td><td>Identificador único do colaborador. Numérico ou alfanumérico.</td></tr>
+            <tr><td>4</td><td><strong>Nome</strong></td><td>JOAO DA SILVA SANTOS</td><td>Nome completo. Usado em pesquisa e drill-down.</td></tr>
+            <tr><td>5</td><td>Data Rescisão</td><td>15/03/2026</td><td>Formato dd/mm/aaaa. Vazio para ativos. Classifica como DESLIGADO.</td></tr>
+            <tr><td>6</td><td><strong>Clas.</strong></td><td>PGTO ou DESC</td><td><strong>PGTO</strong> = proventos · <strong>DESC</strong> = descontos. Líquido = PGTO − DESC.</td></tr>
+            <tr><td>7</td><td><strong>Código</strong></td><td>0020</td><td>Código da verba. A verba 0020 calcula HC e salário médio.</td></tr>
+            <tr><td>8</td><td><strong>Descrição</strong></td><td>SALARIO BASE</td><td>Nome da verba exibido nos gráficos e drill-down.</td></tr>
+            <tr><td>9</td><td>C.R.</td><td>CC-ADM</td><td>Centro de resultado. Filtro disponível no drill-down individual.</td></tr>
+            <tr><td>10+</td><td><strong>MMM/AA&nbsp;-&nbsp;Valor</strong></td><td>MAI/26 - Valor</td><td>Uma coluna por mês. Inclua todos os meses do período auditado.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Formato das colunas de mês -->
+      <div class="section-title">Formato dos nomes das colunas de mês</div>
+      <div class="two-col" style="margin-bottom:16px">
+        <div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Mês</th><th>Nome da coluna</th></tr></thead>
+              <tbody>
+                <tr><td>Janeiro</td><td><code>JAN/26 - Valor</code></td></tr>
+                <tr><td>Fevereiro</td><td><code>FEV/26 - Valor</code></td></tr>
+                <tr><td>Março</td><td><code>MAR/26 - Valor</code></td></tr>
+                <tr><td>Abril</td><td><code>ABR/26 - Valor</code></td></tr>
+                <tr><td>Maio</td><td><code>MAI/26 - Valor</code></td></tr>
+                <tr><td>Junho</td><td><code>JUN/26 - Valor</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>Mês</th><th>Nome da coluna</th></tr></thead>
+              <tbody>
+                <tr><td>Julho</td><td><code>JUL/26 - Valor</code></td></tr>
+                <tr><td>Agosto</td><td><code>AGO/26 - Valor</code></td></tr>
+                <tr><td>Setembro</td><td><code>SET/25 - Valor</code></td></tr>
+                <tr><td>Outubro</td><td><code>OUT/25 - Valor</code></td></tr>
+                <tr><td>Novembro</td><td><code>NOV/25 - Valor</code></td></tr>
+                <tr><td>Dezembro</td><td><code>DEZ/25 - Valor</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div style="background:#E8F5FF;border-left:4px solid #0083CA;padding:8px 12px;border-radius:4px;font-size:12px;margin-bottom:16px">
+        Inclua pelo menos <strong>3 meses de baseline</strong> antes do mês-alvo. O recomendado é 8 a 12 meses para resultados estatisticamente confiáveis.
+      </div>
+
+      <!-- Verbas referência -->
+      <div class="section-title">Verbas de referência — padrão DP</div>
+      <div class="table-wrap" style="margin-bottom:16px">
+        <table class="data-table">
+          <thead><tr><th>Código</th><th>Descrição</th><th>Clas.</th><th>Papel na auditoria</th></tr></thead>
+          <tbody>
+            <tr><td><code>0020</code></td><td>SALARIO BASE</td><td><strong style="color:#003C64">PGTO</strong></td><td>Base para HC e salário médio. Protegida — nunca excluída do cálculo.</td></tr>
+            <tr><td><code>0040</code></td><td>HORA EXTRA 50%</td><td><strong style="color:#003C64">PGTO</strong></td><td>Provento variável. Picos geram status ALTA ou EXTREMA.</td></tr>
+            <tr><td><code>0260</code></td><td>FERIAS</td><td><strong style="color:#003C64">PGTO</strong></td><td>Folha de férias. Filtre pelo processo FERIAS para isolar.</td></tr>
+            <tr><td><code>0270</code></td><td>1/3 FERIAS</td><td><strong style="color:#003C64">PGTO</strong></td><td>Acompanha verba 0260.</td></tr>
+            <tr><td><code>9950</code></td><td>LIQUIDO MENSAL</td><td><strong style="color:#003C64">PGTO</strong></td><td>Conciliação com PGTO − DESC na Visão Geral.</td></tr>
+            <tr><td><code>3010</code></td><td>INSS</td><td><strong style="color:#7D0041">DESC</strong></td><td>Desconto fixo. Ausência gera alerta de verba zerada.</td></tr>
+            <tr><td><code>3020</code></td><td>IRRF</td><td><strong style="color:#7D0041">DESC</strong></td><td>Desconto variável conforme salário e dependentes.</td></tr>
+            <tr><td><code>3050</code></td><td>PLANO SAUDE</td><td><strong style="color:#7D0041">DESC</strong></td><td>Desconto fixo mensal por plano contratado.</td></tr>
+            <tr><td><code>3060</code></td><td>VT</td><td><strong style="color:#7D0041">DESC</strong></td><td>Vale-transporte. Ausência pode indicar afastamento.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Status -->
+      <div class="section-title">Status gerados pela auditoria</div>
+      <div class="table-wrap" style="margin-bottom:16px">
+        <table class="data-table">
+          <thead><tr><th>Status</th><th>Significado</th><th>Ação recomendada</th></tr></thead>
+          <tbody>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">EXTREMA</span></td><td>Z-score acima do limiar máximo</td><td>Verificar imediatamente — possível erro de lançamento</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">ALTA</span></td><td>Z-score acima do limiar de atenção</td><td>Solicitar justificativa ao gestor</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">AUSENTE</span></td><td>Sem movimento no mês-alvo com baseline regular</td><td>Verificar afastamento ou erro de processamento</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">NEGATIVO</span></td><td>Descontos maiores que proventos</td><td>Revisar verbas DESC — possível desconto indevido</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">ZERO_SUSPEITO</span></td><td>Líquido próximo de zero com baseline alta</td><td>Verificar se a folha foi processada</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">MATERIAL</span></td><td>Impacto acima do limiar de materialidade ISA 320</td><td>Documentar e confirmar aprovação</td></tr>
+            <tr class="critico"><td><span class="sbadge sbadge-critico">Z_2SIGMA</span></td><td>Fora de 2 desvios-padrão</td><td>Revisar contexto — pode ser evento justificado</td></tr>
+            <tr><td><span class="sbadge sbadge-novo">NOVO_FUNC</span></td><td>Sem histórico de baseline</td><td>Conferir admissão e valores iniciais</td></tr>
+            <tr class="desligado"><td><span class="sbadge sbadge-desligado">DESLIGADO</span></td><td>Data de rescisão detectada no período</td><td>Verificar verbas rescisórias e FGTS</td></tr>
+            <tr><td><span class="sbadge sbadge-ok">OK</span></td><td>Dentro dos parâmetros esperados</td><td>Nenhuma ação necessária</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Como exportar ADP -->
+      <div class="section-title">Como exportar do ADP Workforce Now</div>
+      <ol style="line-height:2;padding-left:20px;font-size:13px;color:#333;margin-bottom:16px">
+        <li>Acesse <strong>Relatórios → Relatórios de Folha</strong></li>
+        <li>Selecione o relatório de <strong>Verbas por Colaborador</strong> (ou equivalente)</li>
+        <li>Defina o período: inclua o mês a auditar + todos os meses de baseline</li>
+        <li>Exporte como <strong>CSV</strong> com separador <strong>ponto e vírgula</strong></li>
+        <li>Mantenha a codificação <strong>ISO-8859-1 / Windows-1252</strong></li>
+        <li>Confirme que os valores usam <strong>vírgula decimal e ponto como milhar</strong></li>
+        <li>Carregue o arquivo diretamente no painel lateral do app</li>
+      </ol>
+
+      <!-- CNPJs Sonova -->
+      <div class="section-title">CNPJs cadastrados — Sonova Brasil</div>
+      <div class="table-wrap" style="margin-bottom:24px">
+        <table class="data-table">
+          <thead><tr><th>Empresa</th><th>CNPJ</th></tr></thead>
+          <tbody>
+            <tr><td>Sonova</td><td>92.792.530/0001-38</td></tr>
+            <tr><td>AB</td><td>13.059.106/0001-02</td></tr>
+            <tr><td>AR</td><td>09.100.583/0001-05</td></tr>
+            <tr><td>Uniaudio</td><td>12.019.353/0001-12</td></tr>
+            <tr><td>Conect</td><td>12.831.919/0001-06</td></tr>
+            <tr><td>AudioClin</td><td>17.912.157/0001-96</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+</main>
+</div><!-- app-body -->
+
+<!-- ========================= FOOTER ========================= -->
+<footer class="app-footer">
+  Igarapé Digital&nbsp;|&nbsp;Anderson Marinho&nbsp;|&nbsp;Auditoria de Folha — regras DP padrão
+</footer>
+
+<!-- Scripts (ordem obrigatória: data → charts → app) -->
+<script src="data.js"></script>
+<script src="charts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

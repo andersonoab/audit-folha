@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Layout do CSV — Auditoria de Folha | Igarapé Digital</title>
+<style>
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #333; max-width: 920px; margin: 0 auto; padding: 32px 24px; }
+  h1   { font-family: Georgia, serif; color: #003C64; font-size: 22px; margin-bottom: 4px; }
+  h2   { font-family: Georgia, serif; color: #003C64; font-size: 15px; margin: 28px 0 8px; border-bottom: 2px solid #0083CA; padding-bottom: 4px; }
+  h3   { color: #003C64; font-size: 13px; margin: 16px 0 6px; }
+  p, li { line-height: 1.7; margin-bottom: 6px; }
+  .sub  { color: #646464; font-size: 11px; margin-top: 2px; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; }
+  thead tr { background: #0083CA; color: white; }
+  th, td { padding: 6px 10px; border: 1px solid #ccc; text-align: left; }
+  tbody tr:nth-child(even) { background: #F5F8FB; }
+  code  { background: #F0F4F7; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+  .alerta { background: #FFF3CD; border-left: 4px solid #FFC107; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+  .ok     { background: #E8F5FF; border-left: 4px solid #0083CA; padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+  .pgto   { color: #003C64; font-weight: 600; }
+  .desc   { color: #7D0041; font-weight: 600; }
+  footer  { margin-top: 40px; font-size: 10px; color: #999; border-top: 1px solid #ccc; padding-top: 8px; }
+  .col-obrig { color: #7D0041; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<h1>Layout do arquivo CSV — Auditoria de Folha</h1>
+<p class="sub">Igarapé Digital | Referência de formato para preenchimento manual ou exportação do ADP</p>
+
+<h2>1. Configurações do arquivo</h2>
+<table>
+  <thead><tr><th>Parâmetro</th><th>Valor esperado</th><th>Observação</th></tr></thead>
+  <tbody>
+    <tr><td>Separador de colunas</td><td><code>;</code> (ponto e vírgula)</td><td>Padrão ADP Brasil</td></tr>
+    <tr><td>Separador decimal</td><td><code>,</code> (vírgula)</td><td>Ex.: <code>3.500,00</code></td></tr>
+    <tr><td>Separador de milhar</td><td><code>.</code> (ponto)</td><td>Ex.: <code>13.500,00</code></td></tr>
+    <tr><td>Codificação</td><td>ISO-8859-1 (latin-1)</td><td>Padrão do ADP. UTF-8 pode ser usado se sem caracteres especiais nos dados.</td></tr>
+    <tr><td>Extensão</td><td><code>.csv</code></td><td></td></tr>
+    <tr><td>Primeira linha</td><td>Cabeçalho com os nomes das colunas</td><td>Obrigatória</td></tr>
+    <tr><td>Valores zerados</td><td><code>0,00</code></td><td>Não deixar célula vazia para meses sem movimento</td></tr>
+  </tbody>
+</table>
+
+<h2>2. Colunas obrigatórias (ordem recomendada)</h2>
+<div class="alerta">Colunas marcadas com <span class="col-obrig">*</span> são estritamente necessárias para o funcionamento da auditoria.</div>
+<table>
+  <thead><tr><th>#</th><th>Nome da coluna</th><th>Exemplo</th><th>Descrição</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td class="col-obrig">Empresa *</td><td>EMPRESA ALPHA S.A.</td><td>Razão social ou nome curto. Usado para filtrar por empresa no painel lateral.</td></tr>
+    <tr><td>2</td><td class="col-obrig">Processo *</td><td>MENSAL</td><td>Tipo de folha: MENSAL, FERIAS, RESCIS, RESCOM, ADIANT, etc. Permite filtrar cálculos por tipo de evento.</td></tr>
+    <tr><td>3</td><td class="col-obrig">Matrícula *</td><td>00001</td><td>Identificador único do colaborador. Aceita numérico ou alfanumérico.</td></tr>
+    <tr><td>4</td><td class="col-obrig">Nome *</td><td>JOAO DA SILVA SANTOS</td><td>Nome completo do colaborador. Usado em pesquisa e drill-down.</td></tr>
+    <tr><td>5</td><td>Data Rescisão</td><td>15/03/2026</td><td>Formato <code>dd/mm/aaaa</code>. Deixe vazio para colaboradores ativos. Quando preenchida, o colaborador é classificado como DESLIGADO.</td></tr>
+    <tr><td>6</td><td class="col-obrig">Clas. *</td><td>PGTO ou DESC</td><td>Classificação da verba: <span class="pgto">PGTO</span> (proventos) ou <span class="desc">DESC</span> (descontos). O líquido é calculado como PGTO − DESC.</td></tr>
+    <tr><td>7</td><td class="col-obrig">Código *</td><td>0020</td><td>Código da verba. Use zeros à esquerda se necessário. A verba <code>0020</code> é usada para calcular HC e salário médio.</td></tr>
+    <tr><td>8</td><td class="col-obrig">Descrição *</td><td>SALARIO BASE</td><td>Nome da verba. Exibido nos gráficos e tabelas de drill-down.</td></tr>
+    <tr><td>9</td><td>C.R.</td><td>CC-ADM</td><td>Centro de resultado ou custo. Usado como filtro no drill-down individual.</td></tr>
+    <tr><td>10+</td><td class="col-obrig">MMM/AA - Valor *</td><td>SET/25 - Valor</td><td>Uma coluna por mês, no formato <code>MMM/AA - Valor</code>. Inclua todos os meses do período auditado. A ordem cronológica é detectada automaticamente.</td></tr>
+  </tbody>
+</table>
+
+<h2>3. Formato das colunas de mês</h2>
+<p>O nome de cada coluna deve seguir exatamente o padrão: <code>MMM/AA - Valor</code></p>
+<table>
+  <thead><tr><th>Mês</th><th>Nome da coluna</th><th>Mês</th><th>Nome da coluna</th></tr></thead>
+  <tbody>
+    <tr><td>Janeiro 2026</td><td><code>JAN/26 - Valor</code></td><td>Julho 2026</td><td><code>JUL/26 - Valor</code></td></tr>
+    <tr><td>Fevereiro 2026</td><td><code>FEV/26 - Valor</code></td><td>Agosto 2026</td><td><code>AGO/26 - Valor</code></td></tr>
+    <tr><td>Março 2026</td><td><code>MAR/26 - Valor</code></td><td>Setembro 2025</td><td><code>SET/25 - Valor</code></td></tr>
+    <tr><td>Abril 2026</td><td><code>ABR/26 - Valor</code></td><td>Outubro 2025</td><td><code>OUT/25 - Valor</code></td></tr>
+    <tr><td>Maio 2026</td><td><code>MAI/26 - Valor</code></td><td>Novembro 2025</td><td><code>NOV/25 - Valor</code></td></tr>
+    <tr><td>Junho 2026</td><td><code>JUN/26 - Valor</code></td><td>Dezembro 2025</td><td><code>DEZ/25 - Valor</code></td></tr>
+  </tbody>
+</table>
+<div class="alerta">Inclua pelo menos <strong>3 meses de baseline</strong> antes do mês-alvo para que a análise estatística funcione. O recomendado é 8 a 12 meses.</div>
+
+<h2>4. Verbas referência Sonova / padrão DP</h2>
+<table>
+  <thead><tr><th>Código</th><th>Descrição</th><th>Clas.</th><th>Papel na auditoria</th></tr></thead>
+  <tbody>
+    <tr><td><code>0020</code></td><td>SALARIO BASE</td><td class="pgto">PGTO</td><td>Base para cálculo de HC e salário médio. Protegida — nunca excluída do cálculo.</td></tr>
+    <tr><td><code>0040</code></td><td>HORA EXTRA 50%</td><td class="pgto">PGTO</td><td>Provento variável. Picos relevantes geram status ALTA ou EXTREMA.</td></tr>
+    <tr><td><code>0260</code></td><td>FERIAS</td><td class="pgto">PGTO</td><td>Folha de férias. Filtre pelo processo FERIAS se quiser isolar.</td></tr>
+    <tr><td><code>0270</code></td><td>1/3 FERIAS</td><td class="pgto">PGTO</td><td>Acompanha verba 0260.</td></tr>
+    <tr><td><code>9950</code></td><td>LIQUIDO MENSAL</td><td class="pgto">PGTO</td><td>Conciliação: comparado com PGTO − DESC no painel Visão Geral.</td></tr>
+    <tr><td><code>3010</code></td><td>INSS</td><td class="desc">DESC</td><td>Desconto mensal fixo. Ausência gera alerta de verba zerada.</td></tr>
+    <tr><td><code>3020</code></td><td>IRRF</td><td class="desc">DESC</td><td>Desconto variável conforme salário.</td></tr>
+    <tr><td><code>3050</code></td><td>PLANO SAUDE</td><td class="desc">DESC</td><td>Desconto fixo mensal.</td></tr>
+    <tr><td><code>3060</code></td><td>VT</td><td class="desc">DESC</td><td>Desconto de vale-transporte.</td></tr>
+  </tbody>
+</table>
+
+<h2>5. Estrutura de uma linha no CSV</h2>
+<p>Cada linha do CSV representa <strong>uma verba de um colaborador</strong>. O mesmo colaborador terá múltiplas linhas (uma por verba). Todos os valores mensais ficam na mesma linha.</p>
+<div style="background:#F0F4F7;padding:10px 14px;border-radius:4px;font-family:monospace;font-size:11px;overflow-x:auto;white-space:nowrap;line-height:1.8">
+Empresa;Processo;Matrícula;Nome;Data Rescisão;Clas.;Código;Descrição;C.R.;SET/25 - Valor;OUT/25 - Valor;...<br>
+EMPRESA ALPHA S.A.;MENSAL;00001;JOAO DA SILVA SANTOS;;PGTO;0020;SALARIO BASE;CC-ADM;3.500,00;3.500,00;...<br>
+EMPRESA ALPHA S.A.;MENSAL;00001;JOAO DA SILVA SANTOS;;DESC;3010;INSS;CC-ADM;385,00;385,00;...<br>
+EMPRESA ALPHA S.A.;MENSAL;00002;MARIA COSTA OLIVEIRA;;PGTO;0020;SALARIO BASE;CC-ADM;8.000,00;8.000,00;...
+</div>
+
+<h2>6. Como exportar do ADP Workforce Now</h2>
+<ol>
+  <li>Acesse <strong>Relatórios &rarr; Relatórios de Folha</strong></li>
+  <li>Selecione o relatório de <strong>Verbas por Colaborador</strong> (ou equivalente)</li>
+  <li>Defina o período: inclua o mês a auditar + todos os meses de baseline</li>
+  <li>Marque a opção de exportar como <strong>CSV</strong> com separador <strong>ponto e vírgula</strong></li>
+  <li>Mantenha a codificação padrão (<strong>ISO-8859-1 / Windows-1252</strong>)</li>
+  <li>Confirme que os valores usam <strong>vírgula decimal e ponto como milhar</strong></li>
+  <li>Carregue o arquivo diretamente no app</li>
+</ol>
+<div class="ok">O arquivo <code>modelo_folha.csv</code> incluso neste pacote contém dados fictícios com a estrutura exata esperada. Abra-o no Excel ou em um editor de texto para ver o formato de referência.</div>
+
+<h2>7. Status gerados pela auditoria</h2>
+<table>
+  <thead><tr><th>Status</th><th>Significado</th><th>Ação recomendada</th></tr></thead>
+  <tbody>
+    <tr><td><strong style="color:#7D0041">EXTREMA</strong></td><td>Variação extrema — z-score acima do limiar de alerta máximo</td><td>Verificar imediatamente — possível erro de lançamento</td></tr>
+    <tr><td><strong style="color:#7D0041">ALTA</strong></td><td>Variação significativa — acima do limiar de atenção</td><td>Solicitar justificativa ao gestor</td></tr>
+    <tr><td><strong style="color:#7D0041">AUSENTE</strong></td><td>Colaborador com baseline regular sem movimento no mês-alvo</td><td>Verificar afastamento ou erro de processamento</td></tr>
+    <tr><td><strong style="color:#7D0041">NEGATIVO</strong></td><td>Líquido negativo (descontos &gt; proventos)</td><td>Revisar verbas de desconto — possível desconto indevido</td></tr>
+    <tr><td><strong style="color:#7D0041">ZERO_SUSPEITO</strong></td><td>Líquido próximo de zero com baseline significativa</td><td>Verificar se folha foi processada corretamente</td></tr>
+    <tr><td><strong style="color:#7D0041">MATERIAL</strong></td><td>Impacto absoluto acima do limiar de materialidade ISA 320</td><td>Documentar e confirmar aprovação da variação</td></tr>
+    <tr><td><strong style="color:#7D0041">Z_2SIGMA</strong></td><td>Fora de 2 desvios-padrão — atenção moderada</td><td>Revisar contexto — pode ser evento justificado</td></tr>
+    <tr><td><strong style="color:#003C64">NOVO_FUNC</strong></td><td>Sem histórico de baseline — primeiro mês na folha</td><td>Conferir admissão e valores iniciais</td></tr>
+    <tr><td><strong style="color:#646464">DESLIGADO</strong></td><td>Data de rescisão detectada no período</td><td>Verificar verbas rescisórias e FGTS</td></tr>
+    <tr><td><strong style="color:#6EB4DC">OK</strong></td><td>Dentro dos parâmetros esperados</td><td>Nenhuma ação necessária</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  Igarapé Digital | Anderson Marinho | Auditoria de Folha — regras DP padrão<br>
+  Arquivo de referência — não contém dados reais
+</footer>
+</body>
+</html>
