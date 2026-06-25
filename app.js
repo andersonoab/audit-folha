@@ -73,6 +73,13 @@ const APP = (() => {
     const bI2 = document.getElementById("btnConfImport2"); if (bI2) bI2.addEventListener("click", () => document.getElementById("confFileInput").click());
     const bR2 = document.getElementById("btnConfReset2"); if (bR2) bR2.addEventListener("click", confReset);
     const bMV = document.getElementById("btnConfMarcarVisiveis"); if (bMV) bMV.addEventListener("click", _confMarcarVisiveis);
+    const hSel = document.getElementById("holFunc");
+    if (hSel) hSel.addEventListener("change", e => { const [m, n] = e.target.value.split("|||"); HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false; _renderHolerite(); });
+    const hBC = document.getElementById("holBuscaColab");
+    if (hBC) hBC.addEventListener("input", e => { HOL.buscaColab = e.target.value; HOL.q = ""; HOL.onlyChk = false; _renderHolerite(); });
+    const hPrev = document.getElementById("holPrev"); if (hPrev) hPrev.addEventListener("click", () => _holNav(-1));
+    const hNext = document.getElementById("holNext"); if (hNext) hNext.addEventListener("click", () => _holNav(1));
+    const hPrint = document.getElementById("holPrint"); if (hPrint) hPrint.addEventListener("click", () => window.print());
     _bindConfBox();
     document.getElementById("listboxVerbas").addEventListener("change", _renderDrillVerba);
     document.getElementById("btnAplicarColab").addEventListener("click", _renderizarTabelaColab);
@@ -114,6 +121,7 @@ const APP = (() => {
       });
     }
     if (tabId === "conferencia" && S.liquido) _renderConferencia();
+    if (tabId === "holerite" && S.liquido) _renderHolerite();
   }
 
   // ---- File handling ----
@@ -432,6 +440,258 @@ const APP = (() => {
     _renderConferencia(); _renderizarTabela(); _repintarColabConf();
   }
 
+  // ============================================================
+  // ---- Holerite (recibo do colaborador) — aba secundária -----
+  // ============================================================
+  let HOL = { mat: null, nome: null, q: "", onlyChk: false, buscaColab: "",
+    clas: { pgto: true, desc: true, prov: true, outro: true, base: true, encar: true } };
+
+  function _clasKind(c) {
+    const n = String(c == null ? "" : c).toLowerCase();
+    if (n.indexOf("pgto") > -1 || n.indexOf("pgt") > -1 || n.indexOf("pagam") > -1) return "pgto";
+    if (n.indexOf("outro") > -1) return "outro";
+    if (n.indexOf("desc") > -1) return "desc";
+    if (n.indexOf("base") > -1) return "base";
+    if (n.indexOf("prov") > -1) return "prov";
+    if (n.indexOf("encar") > -1) return "encar";
+    return "outro";
+  }
+  function _clasRank(c) { return ({ pgto: 1, outro: 3, desc: 2, base: 5, prov: 4, encar: 6 })[_clasKind(c)] || 99; }
+  function _isLiqRow(row) {
+    if (String(row["Código"] || "").replace(/^0+/, "") === "9950") return true;
+    return String((row["Descrição"] || "") + " " + (row["Código"] || "")).toLowerCase().indexOf("liquido") > -1
+        || String(row["Descrição"] || "").toLowerCase().indexOf("líquido") > -1;
+  }
+  function _linReg(seq) {
+    const n = seq.length; let sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let i = 0; i < n; i++) { sx += i; sy += seq[i]; sxx += i * i; sxy += i * seq[i]; }
+    const d = n * sxx - sx * sx;
+    const slope = d ? (n * sxy - sx * sy) / d : 0;
+    return { slope, intercept: (sy - slope * sx) / n };
+  }
+  function _sparkSvg(seq) {
+    const w = 96, h = 28, pad = 4, n = seq.length;
+    if (!n) return "";
+    const mn = Math.min(...seq), mx = Math.max(...seq), rng = (mx - mn) || 1;
+    const x = i => n === 1 ? w / 2 : pad + i * (w - 2 * pad) / (n - 1);
+    const y = v => { const yy = h - pad - ((v - mn) / rng) * (h - 2 * pad); return Math.max(pad, Math.min(h - pad, yy)); };
+    const first = seq[0], last = seq[n - 1];
+    const { slope, intercept } = _linReg(seq);
+    const scaleRef = Math.max(Math.abs(mx), Math.abs(mn), 1);
+    const flat = rng / scaleRef < 0.005;
+    const dir = flat ? 0 : (slope > 0 ? 1 : (slope < 0 ? -1 : 0));
+    const col = dir > 0 ? "#005A64" : (dir < 0 ? "#8C321E" : "#646464");
+    const pctTot = Math.abs(first) > 0.005 ? (last - first) / Math.abs(first) * 100 : (Math.abs(last) > 0.005 ? 100 * Math.sign(last) : 0);
+    const resid = seq.map((v, i) => v - (intercept + slope * i));
+    const sd = Math.sqrt(resid.reduce((a, b) => a + b * b, 0) / n);
+    const outIdx = [];
+    if (n >= 4 && sd > 0) { const thr = Math.max(1.6 * sd, 0.02 * scaleRef); seq.forEach((v, i) => { if (Math.abs(resid[i]) > thr) outIdx.push(i); }); }
+    const sign = pctTot > 0 ? "+" : "";
+    const dirTxt = dir > 0 ? "alta" : (dir < 0 ? "queda" : "estável");
+    const title = `Tendência ${dirTxt} · variação total ${sign}${pctTot.toFixed(1)}%${outIdx.length ? " · " + outIdx.length + " ponto(s) fora da tendência" : ""}`;
+    if (n === 1) return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${title}</title><circle cx="${x(0).toFixed(1)}" cy="${y(seq[0]).toFixed(1)}" r="2.4" fill="${col}"/></svg>`;
+    const pts = seq.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const area = `${x(0).toFixed(1)},${(h - pad).toFixed(1)} ${pts} ${x(n - 1).toFixed(1)},${(h - pad).toFixed(1)}`;
+    const ty0 = y(intercept), ty1 = y(intercept + slope * (n - 1));
+    let dots = "";
+    seq.forEach((v, i) => {
+      const isOut = outIdx.indexOf(i) >= 0, isLast = i === n - 1;
+      if (isOut) dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.1" fill="#7D0041" stroke="#fff" stroke-width="1"/>`;
+      else if (isLast) dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.3" fill="${col}"/>`;
+      else dots += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="1.5" fill="${col}" fill-opacity=".75"/>`;
+    });
+    return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><title>${title}</title>`
+      + `<polyline fill="${col}" fill-opacity=".10" stroke="none" points="${area}"/>`
+      + `<line x1="${x(0).toFixed(1)}" y1="${ty0.toFixed(1)}" x2="${x(n - 1).toFixed(1)}" y2="${ty1.toFixed(1)}" stroke="${col}" stroke-width="1" stroke-dasharray="3 2" stroke-opacity=".55"/>`
+      + `<polyline fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" points="${pts}"/>${dots}</svg>`;
+  }
+  // Linhas do holerite para o colaborador atual
+  function _holLines() {
+    if (!HOL.mat || !S.dfFiltrado) return [];
+    const rows = S.dfFiltrado.filter(row => getMatricula(row) === HOL.mat && getNome(row) === HOL.nome);
+    return rows.map(row => ({
+      codigo: row["Código"], descricao: row["Descrição"], clas: row["Clas."],
+      cr: row["C.R."], processo: row["Processo"], row,
+      liq: _isLiqRow(row),
+      lk: _lineKey(row),
+      per: Object.fromEntries(S.mesesDetectados.map(m => [m, row[`${m} - Valor`] || 0]))
+    }));
+  }
+  function _holLineChecked(l) {
+    const c = S.conf[_confKeyMN(HOL.mat, HOL.nome)];
+    return !!(c && c.linhas && c.linhas[l.lk]);
+  }
+  function _holLiqValue(lines) {
+    const l = lines.find(x => x.liq);
+    return l ? { found: true, value: l.per[S.mesAlvo] || 0 } : { found: false, value: 0 };
+  }
+  function _holCalc(lines) {
+    let creditos = 0, descontos = 0, outros = 0, count = 0;
+    lines.forEach(l => {
+      if (l.liq || !_holLineChecked(l)) return;
+      const v = l.per[S.mesAlvo] || 0, k = _clasKind(l.clas);
+      count++;
+      if (k === "desc") descontos += v;
+      else if (k === "pgto" || k === "prov") creditos += v;
+      else outros += v;
+    });
+    return { count, creditos, descontos, outros, calculado: creditos + outros - descontos };
+  }
+  function _holClasCounts(lines) {
+    const p = {}; lines.forEach(l => { if (l.liq) return; const k = _clasKind(l.clas); p[k] = (p[k] || 0) + 1; });
+    return p;
+  }
+  function _popularHolFunc() {
+    const sel = document.getElementById("holFunc"); if (!sel) return;
+    const q = (HOL.buscaColab || "").toLowerCase().trim();
+    let pop = (S.liquidoAnalise || []).slice().sort((a, b) => String(a.Nome).localeCompare(String(b.Nome)));
+    if (q) pop = pop.filter(r => String(r.Nome).toLowerCase().includes(q) || String(r.Matrícula).toLowerCase().includes(q));
+    sel.innerHTML = pop.map(r => `<option value="${escAttr(r.Matrícula + "|||" + r.Nome)}">${escAttr(maskMat(r.Matrícula))} — ${escAttr(String(maskNome(r.Nome, r.Matrícula)).substring(0,45))} (${r.STATUS})</option>`).join("");
+    const cont = document.getElementById("holCount");
+    if (cont) cont.textContent = q ? `${pop.length} colaborador(es) encontrado(s)` : "";
+    if (!pop.length) { HOL.mat = null; HOL.nome = null; return; }
+    const cur = HOL.mat ? (HOL.mat + "|||" + HOL.nome) : null;
+    const has = cur && pop.some(r => (r.Matrícula + "|||" + r.Nome) === cur);
+    let alvo = has ? cur
+      : (!q && S.funcSelecionado && pop.some(r => r.Matrícula === S.funcSelecionado.Matrícula && r.Nome === S.funcSelecionado.Nome)
+          ? (S.funcSelecionado.Matrícula + "|||" + S.funcSelecionado.Nome)
+          : (pop[0].Matrícula + "|||" + pop[0].Nome));
+    sel.value = alvo; const [m, n] = alvo.split("|||"); HOL.mat = m; HOL.nome = n;
+  }
+  function _renderHolerite() {
+    const cont = document.getElementById("holContent"); if (!cont) return;
+    if (!S.liquido) { cont.innerHTML = `<div class="hint-text">Carregue um arquivo e processe para ver o holerite.</div>`; return; }
+    _popularHolFunc();
+    if (!HOL.mat) { cont.innerHTML = `<div class="hint-text">Selecione um colaborador.</div>`; return; }
+    const fr = (S.liquido || []).find(r => r.Matrícula === HOL.mat && r.Nome === HOL.nome) || {};
+    let lines = _holLines();
+    const totalLines = lines.length;
+    // ordena: líquido primeiro, depois por classificação
+    lines.sort((a, b) => (a.liq ? -1 : b.liq ? 1 : _clasRank(a.clas) - _clasRank(b.clas)) || String(a.codigo).localeCompare(String(b.codigo)));
+    // filtro
+    const q = HOL.q.toLowerCase().trim();
+    const visiveis = lines.filter(l => {
+      if (l.liq) return true;
+      if (!HOL.clas[_clasKind(l.clas)]) return false;
+      if (HOL.onlyChk && !_holLineChecked(l)) return false;
+      if (q) { const hay = String((l.codigo || "") + " " + (l.descricao || "") + " " + (l.clas || "")).toLowerCase(); if (hay.indexOf(q) < 0) return false; }
+      return true;
+    });
+    const hiddenN = totalLines - visiveis.length;
+    const okN = lines.filter(l => !l.liq && _holLineChecked(l)).length;
+    const calcEff = totalLines - 1; // exclui líquido da contagem-base
+    const liq = _holLiqValue(lines);
+    if (!liq.found && fr && fr.LIQUIDO_ALVO != null) { liq.found = true; liq.value = fr.LIQUIDO_ALVO; }
+    const c = _holCalc(lines);
+
+    const counts = _holClasCounts(lines);
+    const CHIPS = [["pgto","PGTO"],["desc","DESC"],["prov","PROV"],["outro","OUTRO"],["base","BASE"],["encar","ENCAR"]];
+    const chips = CHIPS.filter(([k]) => counts[k]).map(([k, lbl]) =>
+      `<button class="hol-chip tag ${k} ${HOL.clas[k] ? "on" : "off"}" data-clas="${k}">${lbl} <span class="n">${counts[k]}</span></button>`).join("");
+
+    // cards de reconciliação
+    let dif = 0, cls = "warn", status = "Selecione as verbas de pagamento e desconto para validar.";
+    if (!liq.found) { status = "Não localizei a verba Líquido (9950) neste holerite."; }
+    else if (c.count > 0) { dif = c.calculado - liq.value;
+      if (Math.abs(dif) < 0.01) { status = "CERTO: os selecionados fecham com o Líquido."; cls = "ok"; }
+      else { status = "DIVERGENTE: diferença entre a seleção e o Líquido."; cls = "err"; } }
+
+    const months = S.mesesDetectados;
+    const head = `<tr>
+      <th class="hol-sel">Calc.</th><th>Cód.</th><th>Descrição</th><th class="c">Clas.</th>
+      ${months.map(m => `<th class="r ${m === S.mesAlvo ? "hol-alvo" : ""}">${m}</th>`).join("")}
+      <th class="c hol-sparkhead">Tendência</th></tr>`;
+    const body = visiveis.map(l => {
+      const seq = months.map(m => l.per[m] || 0);
+      const kind = _clasKind(l.clas);
+      const checked = _holLineChecked(l);
+      const cells = months.map((m, i) => {
+        const v = seq[i]; let hm = "", arw = "";
+        if (i > 0) { const pr = seq[i - 1];
+          if (pr === 0 && Math.abs(v) > 0.005) { hm = "hm-new"; arw = ' <span class="arw up">▲</span>'; }
+          else if (Math.abs(pr) > 0.005 && Math.abs(v) < 0.005) { hm = "hm-ext"; arw = ' <span class="arw dn">▼</span>'; }
+          else if (Math.abs(pr) > 0.005) { const pct = (v - pr) / Math.abs(pr) * 100, a = Math.abs(pct);
+            if (a >= 98) hm = "hm-ext"; else if (a >= 30) hm = "hm-not";
+            if (a >= 30) arw = ` <span class="arw ${pct > 0 ? "up" : "dn"}">${pct > 0 ? "▲" : "▼"}</span>`; } }
+        return `<td class="r mcell ${hm} ${m === S.mesAlvo ? "hol-alvo" : ""}">${fmtBRL(v)}${arw}</td>`;
+      }).join("");
+      return `<tr class="${checked ? "line-ok" : ""} ${l.liq ? "liquido" : ""}">
+        <td class="hol-sel">${l.liq ? "" : `<input type="checkbox" class="hol-check" data-lk="${escAttr(l.lk)}" ${checked ? "checked" : ""} title="Incluir/remover no cálculo">`}</td>
+        <td class="code-n">${escAttr(l.codigo)}</td>
+        <td title="${escAttr(l.descricao)}">${String(l.descricao || "").substring(0,46)}${l.liq ? ' <span class="tag pgto">LÍQ</span>' : ""}</td>
+        <td class="c"><span class="tag ${kind}">${escAttr(l.clas || "-")}</span></td>
+        ${cells}
+        <td class="c hol-sparkcell">${_sparkSvg(seq)}</td></tr>`;
+    }).join("");
+
+    cont.innerHTML = `
+      <div class="hol-head">
+        <div><div class="hol-nome">${escAttr(maskNome(fr.Nome, fr.Matrícula))}</div>
+          <div class="hol-sub">Matrícula ${escAttr(maskMat(fr.Matrícula))} · ${escAttr((fr.Empresa || "").trim() || "-")} · Processo ${escAttr(fr.Processo || "-")}</div></div>
+        <div class="hol-meta">Status <span class="sbadge ${_badgeCls(fr.STATUS)}">${fr.STATUS || "-"}</span><br>
+          Mês base <b>${S.mesAlvo}</b> · ${totalLines} lançamento(s)</div>
+      </div>
+      <div class="hol-filterbar">
+        <input type="text" id="holBusca" class="input-ctrl-sm" placeholder="Filtrar verba por código ou descrição..." value="${escAttr(HOL.q)}" style="min-width:240px">
+        <span class="hol-chips">${chips}</span>
+        <label class="conf-box-chk" style="font-size:12px"><input type="checkbox" id="holOnlyChk" ${HOL.onlyChk ? "checked" : ""}> Só marcadas (Calc.)</label>
+      </div>
+      <div class="calc-box">
+        <div class="calc-card"><div class="l">Líquido localizado</div><div class="v">${liq.found ? fmtBRL(liq.value) : "-"}</div></div>
+        <div class="calc-card"><div class="l">Créditos selecionados</div><div class="v">${fmtBRL(c.creditos + c.outros)}</div></div>
+        <div class="calc-card"><div class="l">Descontos selecionados</div><div class="v">${fmtBRL(c.descontos)}</div></div>
+        <div class="calc-card ${cls}"><div class="l">Resultado</div><div class="v">${fmtBRL(c.calculado)}</div></div>
+        <div class="calc-card ${cls}"><div class="l">Diferença</div><div class="v">${liq.found && c.count > 0 ? fmtBRL(dif) : "-"}</div></div>
+        <div class="calc-note"><b>${status}</b><br>Marque na coluna <b>Calc.</b> as linhas que devem compor a conta. Regra: PGTO/PROV/OUTRO somam; DESC subtrai; a linha Líquido é só referência.</div>
+      </div>
+      <div class="hol-linecount">Linhas selecionadas para cálculo: <b>${okN}</b> de <b>${calcEff}</b> (${calcEff ? Math.round(okN / calcEff * 100) : 0}%).${hiddenN > 0 ? ` · <b>${hiddenN}</b> verba(s) ocultada(s) pelos filtros — a verba Líquido permanece sempre visível.` : ""}</div>
+      <div class="hol-legend"><b>${months.length}</b> meses na tela (base <b>${S.mesAlvo}</b>). <span class="ml"><i class="l-not"></i> ≥ 30%</span> <span class="ml"><i class="l-ext"></i> ≥ 98% ou zerada</span> <span class="ml"><i class="l-new"></i> verba nova</span> <span class="ml"><span class="l-trend"></span> reta de tendência</span> <span class="ml"><i class="l-out"></i> fora da tendência</span></div>
+      <div class="table-wrap hol-scroll" id="holScroll" style="max-height:460px">
+        <table class="data-table hol-table"><thead>${head}</thead><tbody id="holBody">${body}</tbody></table>
+      </div>`;
+    _bindHolInner();
+  }
+  function _bindHolInner() {
+    const busca = document.getElementById("holBusca");
+    if (busca) busca.addEventListener("input", e => { HOL.q = e.target.value; _holReRender(); });
+    const onlyc = document.getElementById("holOnlyChk");
+    if (onlyc) onlyc.addEventListener("change", e => { HOL.onlyChk = e.target.checked; _holReRender(); });
+    document.querySelectorAll("#holContent .hol-chip").forEach(ch => ch.addEventListener("click", () => {
+      const k = ch.dataset.clas; HOL.clas[k] = !HOL.clas[k]; _holReRender();
+    }));
+    const body = document.getElementById("holBody");
+    if (body) body.addEventListener("change", e => {
+      const chk = e.target.closest(".hol-check"); if (!chk) return;
+      _confSetLinha(_confKeyMN(HOL.mat, HOL.nome), chk.dataset.lk, chk.checked);
+      _holReRender();
+      if (S.funcSelecionado && S.funcSelecionado.Matrícula === HOL.mat && S.funcSelecionado.Nome === HOL.nome) {
+        _renderConfBox(S.funcSelecionado); _renderizarDrillVerbas();
+      }
+      _renderConferencia();
+    });
+  }
+  function _holReRender() {
+    const sc = document.getElementById("holScroll"); const top = sc ? sc.scrollTop : 0;
+    const fb = document.activeElement && document.activeElement.id === "holBusca";
+    _renderHolerite();
+    const sc2 = document.getElementById("holScroll"); if (sc2) sc2.scrollTop = top;
+    if (fb) { const b = document.getElementById("holBusca"); if (b) { b.focus(); b.selectionStart = b.value.length; } }
+  }
+  function _holNav(delta) {
+    const sel = document.getElementById("holFunc"); if (!sel || !sel.options.length) return;
+    let i = sel.selectedIndex + delta;
+    i = Math.max(0, Math.min(sel.options.length - 1, i));
+    sel.selectedIndex = i;
+    const [m, n] = sel.value.split("|||"); HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false;
+    _renderHolerite();
+  }
+  function _verHolerite(mat, nome) {
+    HOL.mat = mat; HOL.nome = nome; HOL.q = ""; HOL.onlyChk = false; HOL.buscaColab = "";
+    const hb = document.getElementById("holBuscaColab"); if (hb) hb.value = "";
+    _switchTab("holerite");
+    _renderHolerite();
+  }
+
   function _carregarEmpresas() {
     const emps = [...new Set(S.df.map(r => (r["Empresa"] || "").trim()).filter(Boolean))].sort();
     S.empresasDisp = emps; S.empresasSel = [...emps];
@@ -590,6 +850,11 @@ const APP = (() => {
     _bindSortHeaders();
     _renderizarTabela();
     _renderConferencia();
+    HOL.mat = null; HOL.nome = null; HOL.buscaColab = "";
+    const hb = document.getElementById("holBuscaColab"); if (hb) hb.value = "";
+    _popularHolFunc();
+    const tabAtiva2 = document.querySelector(".tab-btn.active")?.dataset.tab;
+    if (tabAtiva2 === "holerite") _renderHolerite();
     S.funcSelecionado = null;
     document.getElementById("drillInfo").textContent = "(selecione um funcionário na tabela acima)";
   }
@@ -1034,6 +1299,8 @@ const APP = (() => {
     _setOptions("comboDrillProc", ["(todos)", ...procs]);
     document.getElementById("entryDrillVerba").value = "";
     _renderConfBox(r);
+    const vh = document.getElementById("btnVerHolerite");
+    if (vh) { vh.style.display = "inline-block"; vh.onclick = () => _verHolerite(r.Matrícula, r.Nome); }
     _renderizarDrillVerbas();
   }
 
@@ -1335,7 +1602,7 @@ const APP = (() => {
     selecionarClasseVerbas, limparSelecaoVerbas,
     _mvFiltrar, _mvIncluirTodos, _mvExcluirTodos, _mvAplicar,
     _selTodosEmpresa, _selTodosProcesso, _navigateToFuncDrill,
-    confExport, confImport, confReset };
+    confExport, confImport, confReset, _verHolerite };
 })();
 
 document.addEventListener("DOMContentLoaded", APP.init);

@@ -304,3 +304,54 @@ tr.row-outro { background: #F7F7F7; }
 #tabelaConf tr.conf-row-ok td{color:#2c6b4f}
 .btn-xs.conf-open{padding:2px 9px;font-size:11px;cursor:pointer;border:1px solid #0083CA;color:#0083CA;background:#fff;border-radius:3px}
 .btn-xs.conf-open:hover{background:#0083CA;color:#fff}
+
+/* ===================== Holerite (aba secundária) ===================== */
+.hol-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.hol-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;background:#0083CA;color:#fff;border-radius:6px;padding:12px 16px;margin-bottom:12px}
+.hol-nome{font-size:16px;font-weight:700}
+.hol-sub{font-size:12px;opacity:.92;margin-top:2px}
+.hol-meta{font-size:12px;text-align:right;line-height:1.6}
+.hol-meta .sbadge{color:#003C64}
+.hol-filterbar{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-bottom:12px}
+.hol-chips{display:inline-flex;gap:6px;flex-wrap:wrap}
+.hol-chip{cursor:pointer;border:1px solid #CCCCCC;border-radius:14px;padding:2px 10px;font-size:11px;font-weight:600;background:#fff;display:inline-flex;align-items:center;gap:5px}
+.hol-chip.off{opacity:.4;text-decoration:line-through}
+.hol-chip .n{font-size:10px;opacity:.7}
+.tag{display:inline-block;padding:1px 7px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px;border:1px solid transparent}
+.tag.pgto{background:#E3F2EC;color:#1f6b4a;border-color:#bfe0d0}
+.tag.desc{background:#FBEDE8;color:#8C321E;border-color:#e6c4ba}
+.tag.prov{background:#FFF4E0;color:#8a5a00;border-color:#f0dcae}
+.tag.outro{background:#EAF4FB;color:#005A64;border-color:#c5e2ef}
+.tag.base{background:#EFEFEF;color:#555;border-color:#d6d6d6}
+.tag.encar{background:#F0E8F2;color:#5d2a6b;border-color:#dac6e0}
+.calc-box{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:10px}
+.calc-card{background:#F7FBFD;border:1px solid #CCCCCC;border-radius:6px;padding:9px 12px}
+.calc-card .l{font-size:10px;color:#646464;text-transform:uppercase;letter-spacing:.4px}
+.calc-card .v{font-size:16px;font-weight:700;color:#003C64;margin-top:3px}
+.calc-card.ok{background:#F0F8F4;border-color:#bfe0d0}.calc-card.ok .v{color:#1f6b4a}
+.calc-card.err{background:#FBEDE8;border-color:#e6c4ba}.calc-card.err .v{color:#8C321E}
+.calc-card.warn{background:#FFF8EC;border-color:#f0dcae}
+.calc-note{grid-column:1/-1;font-size:11px;color:#555;background:#fff;border:1px dashed #CCCCCC;border-radius:5px;padding:7px 10px;line-height:1.5}
+.hol-linecount{font-size:12px;color:#444;margin-bottom:6px}
+.hol-legend{font-size:11px;color:#646464;margin-bottom:8px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.hol-legend .ml{display:inline-flex;align-items:center;gap:5px}
+.hol-legend i{display:inline-block;width:12px;height:12px;border-radius:2px}
+.hol-legend .l-not{background:#FBE9C7}.hol-legend .l-ext{background:#F3C9BC}.hol-legend .l-new{background:#CDE7D6}.hol-legend .l-out{background:#7D0041}
+.hol-legend .l-trend{display:inline-block;width:18px;height:0;border-top:1.5px dashed #005A64}
+.hol-table th.hol-sel,.hol-table td.hol-sel{width:42px;text-align:center}
+.hol-table .hol-check{width:15px;height:15px;accent-color:#0083CA;cursor:pointer}
+.hol-table td.code-n{font-variant-numeric:tabular-nums;color:#005A64;font-weight:600}
+.hol-table th.hol-alvo,.hol-table td.hol-alvo{background:#EAF4FB}
+.hol-table tr.liquido{background:#EAF4FB;font-weight:600}
+.hol-table tr.line-ok{background:#F0F8F4}
+.hol-table td.mcell .arw{font-size:9px}
+.hol-table .arw.up{color:#1f6b4a}.hol-table .arw.dn{color:#8C321E}
+.hol-table td.mcell.hm-not{background:#FBE9C7}
+.hol-table td.mcell.hm-ext{background:#F3C9BC}
+.hol-table td.mcell.hm-new{background:#CDE7D6}
+.hol-sparkcell{text-align:center}
+.spark{display:inline-block;vertical-align:middle}
+@media print{
+  .sidebar,.tab-nav,.hol-toolbar,.app-header,.hol-filterbar #holOnlyChk{display:none!important}
+  .main-content{margin:0!important}
+}

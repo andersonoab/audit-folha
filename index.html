@@ -115,6 +115,7 @@
     <button class="tab-btn" data-tab="verbasZeradas">Verbas Zeradas</button>
     <button class="tab-btn" data-tab="analiseVerbas">Análise de Verbas</button>
     <button class="tab-btn" data-tab="conferencia">Conferência</button>
+    <button class="tab-btn" data-tab="holerite">Holerite</button>
     <button class="tab-btn" data-tab="exportar">Exportar</button>
     <button class="tab-btn" data-tab="ajuda" style="margin-left:auto;color:#0083CA">Ajuda / CSV</button>
   </div>
@@ -232,6 +233,7 @@
       <div class="conf-box" id="confBox" style="display:none">
         <label class="conf-box-chk"><input type="checkbox" id="confBoxChk"> Marcar funcionário como conferido</label>
         <span class="conf-box-info" id="confBoxInfo"></span>
+        <button class="btn-sm btn-secondary-sm" id="btnVerHolerite" style="display:none;margin-left:auto">Ver holerite ▸</button>
         <textarea id="confBoxObs" class="conf-box-obs" placeholder="Observação da conferência (opcional) — fica salva e vai para o Excel."></textarea>
       </div>
       <div class="drill-grid">
@@ -403,6 +405,22 @@
         </table>
       </div>
       <div class="count-label" id="countConf"></div>
+    </div>
+  </div>
+
+  <!-- ========================= ABA: Holerite ========================= -->
+  <div class="tab-pane" id="tab-holerite">
+    <div class="tab-content-inner">
+      <div class="hol-toolbar">
+        <label style="font-size:12px;color:#444;font-weight:600">Colaborador:</label>
+        <input type="text" id="holBuscaColab" class="input-ctrl-sm" placeholder="Buscar por nome ou matrícula..." style="min-width:220px">
+        <select id="holFunc" class="select-ctrl-sm" style="min-width:300px"></select>
+        <button class="btn-sm btn-secondary-sm" id="holPrev">◀ Anterior</button>
+        <button class="btn-sm btn-secondary-sm" id="holNext">Próximo ▶</button>
+        <button class="btn-sm btn-secondary-sm" id="holPrint">Imprimir / PDF</button>
+        <span id="holCount" style="font-size:11px;color:#646464"></span>
+      </div>
+      <div id="holContent"><div class="hint-text">Carregue um arquivo e selecione um colaborador para ver o holerite.</div></div>
     </div>
   </div>
 
