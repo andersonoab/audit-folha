@@ -29,13 +29,16 @@ const APP = (() => {
     // privacidade
     anonimizar: false,
     mapaAnonimo: {},
-    csvBruto: null, csvNome: null
+    csvBruto: null, csvNome: null,
+    // conferência (revisão humana)
+    conf: {}, filtroConf: "todos"
   };
 
   // ---- Init ----
   function init() {
     _bindEvents();
     _popularComboMetodo();
+    _confLoad();
     _loadFromStorage(); // carrega dados persistidos automaticamente
   }
 
@@ -58,6 +61,19 @@ const APP = (() => {
     document.getElementById("btnLimparDrill").addEventListener("click", _limparFiltrosDrill);
     document.getElementById("btnExportar").addEventListener("click", acaoExportarExcel);
     document.getElementById("entryBuscaVerba").addEventListener("input", _filtrarListboxVerbas);
+    const cConf = document.getElementById("comboConfTab");
+    if (cConf) cConf.addEventListener("change", _renderizarTabela);
+    const bCE = document.getElementById("btnConfExport"); if (bCE) bCE.addEventListener("click", confExport);
+    const bCI = document.getElementById("btnConfImport"); if (bCI) bCI.addEventListener("click", () => document.getElementById("confFileInput").click());
+    const cFI = document.getElementById("confFileInput"); if (cFI) cFI.addEventListener("change", e => { if (e.target.files[0]) confImport(e.target.files[0]); e.target.value = ""; });
+    const bCR = document.getElementById("btnConfReset"); if (bCR) bCR.addEventListener("click", confReset);
+    const cf2 = document.getElementById("comboConfFiltro2"); if (cf2) cf2.addEventListener("change", _renderConferencia);
+    const eb2 = document.getElementById("entryConfBusca2"); if (eb2) eb2.addEventListener("input", _renderConferencia);
+    const bE2 = document.getElementById("btnConfExport2"); if (bE2) bE2.addEventListener("click", confExport);
+    const bI2 = document.getElementById("btnConfImport2"); if (bI2) bI2.addEventListener("click", () => document.getElementById("confFileInput").click());
+    const bR2 = document.getElementById("btnConfReset2"); if (bR2) bR2.addEventListener("click", confReset);
+    const bMV = document.getElementById("btnConfMarcarVisiveis"); if (bMV) bMV.addEventListener("click", _confMarcarVisiveis);
+    _bindConfBox();
     document.getElementById("listboxVerbas").addEventListener("change", _renderDrillVerba);
     document.getElementById("btnAplicarColab").addEventListener("click", _renderizarTabelaColab);
     document.getElementById("btnLimparColab").addEventListener("click", () => {
@@ -97,6 +113,7 @@ const APP = (() => {
         delete S.tabsDirty[tabId];
       });
     }
+    if (tabId === "conferencia" && S.liquido) _renderConferencia();
   }
 
   // ---- File handling ----
@@ -165,6 +182,254 @@ const APP = (() => {
     localStorage.removeItem("af_csv");
     localStorage.removeItem("af_nome");
     location.reload();
+  }
+
+  // ============================================================
+  // ---- Conferência (revisão humana) — portado do Recibo ------
+  // ============================================================
+  const CONF_KEY = "af_conf_v1";
+  function _confKey(r)   { return String(r.Matrícula) + "|||" + String(r.Nome); }
+  function _confKeyMN(m, n) { return String(m) + "|||" + String(n); }
+  function _lineKey(row) { return String(row["Código"]||"") + "||" + String(row["Descrição"]||"") + "||" + String(row["Clas."]||""); }
+  function _confLoad() {
+    try { const r = JSON.parse(localStorage.getItem(CONF_KEY)); S.conf = (r && typeof r === "object") ? r : {}; }
+    catch (e) { S.conf = {}; }
+  }
+  function _confSave() { try { localStorage.setItem(CONF_KEY, JSON.stringify(S.conf)); } catch (e) {} }
+  function _confGet(key) { return S.conf[key] || { ok: false, obs: "", linhas: {} }; }
+  function _confEnsure(key) {
+    if (!S.conf[key]) S.conf[key] = { ok: false, obs: "", linhas: {} };
+    if (!S.conf[key].linhas) S.conf[key].linhas = {};
+    return S.conf[key];
+  }
+  function _confIsEmpty(c) { return !c.ok && !(c.obs && c.obs.trim()) && !(c.linhas && Object.keys(c.linhas).length); }
+  function _confSetFunc(key, val) {
+    const c = _confEnsure(key); c.ok = !!val; c.ts = new Date().toISOString();
+    if (_confIsEmpty(c)) delete S.conf[key];
+    _confSave(); _atualizarConfContador();
+  }
+  function _confSetObs(key, txt) {
+    const c = _confEnsure(key); c.obs = txt; c.ts = new Date().toISOString();
+    if (_confIsEmpty(c)) delete S.conf[key];
+    _confSave();
+  }
+  function _confSetLinha(key, lk, val) {
+    const c = _confEnsure(key);
+    if (val) c.linhas[lk] = true; else delete c.linhas[lk];
+    c.ts = new Date().toISOString();
+    if (_confIsEmpty(c)) delete S.conf[key];
+    _confSave();
+  }
+  function _confStats() {
+    const pop = S.liquidoAnalise || [];
+    let ok = 0, comObs = 0;
+    pop.forEach(r => { const c = S.conf[_confKey(r)]; if (c && c.ok) ok++; if (c && c.obs && c.obs.trim()) comObs++; });
+    return { ok, total: pop.length, pend: pop.length - ok, comObs };
+  }
+  function _atualizarConfContador() {
+    const s = _confStats();
+    const pct = s.total ? Math.round(s.ok / s.total * 100) : 0;
+    const txt = `Conferidos: ${s.ok} de ${s.total} (${pct}%) · Pendentes: ${s.pend} · Com observação: ${s.comObs}`;
+    const el = document.getElementById("lblConfContador");
+    if (el) el.textContent = txt;
+    const elt = document.getElementById("lblConfContadorTab");
+    if (elt) elt.textContent = txt;
+    const fill = document.getElementById("confProgFill");
+    if (fill) fill.style.width = pct + "%";
+    const ex = document.getElementById("confExpStatus");
+    if (ex && ex.dataset.live === "1") ex.textContent = `${s.ok} conferidos · ${s.pend} pendentes · ${s.comObs} com observação.`;
+  }
+  // Célula de checkbox para tabelas de funcionário (delegação trata o change)
+  function _confCellFunc(r) {
+    const key = _confKey(r);
+    const c = _confGet(key);
+    const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
+    const dot = (c.obs && c.obs.trim()) ? `<span class="conf-obs-dot" title="${escAttr(c.obs)}">obs</span>` : "";
+    const lin = nLin ? `<span class="conf-lin-badge" title="${nLin} verba(s) conferida(s)">${nLin}</span>` : "";
+    return `<td class="center conf-cell" data-confkey="${escAttr(key)}">
+      <input type="checkbox" class="conf-chk" onclick="event.stopPropagation()" ${c.ok ? "checked" : ""} title="Marcar funcionário como conferido">${dot}${lin}</td>`;
+  }
+  function escAttr(s) { return String(s == null ? "" : s).replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  // Delegação de eventos para checkboxes de funcionário em qualquer tbody
+  function _bindConfDelegation(tbodyId) {
+    const tb = document.getElementById(tbodyId);
+    if (!tb || tb.dataset.confBound === "1") return;
+    tb.dataset.confBound = "1";
+    tb.addEventListener("change", e => {
+      const chk = e.target.closest(".conf-chk"); if (!chk) return;
+      const cell = chk.closest("[data-confkey]"); if (!cell) return;
+      _confSetFunc(cell.dataset.confkey, chk.checked);
+      // se o filtro de conferência estiver ativo, re-renderiza para refletir
+      if (S.filtroConf !== "todos") { _renderizarTabela(); }
+      // sincroniza caixa de drill se for o selecionado
+      if (S.funcSelecionado && _confKey(S.funcSelecionado) === cell.dataset.confkey) _renderConfBox(S.funcSelecionado);
+    });
+  }
+  // Caixa de conferência no drill do funcionário
+  function _renderConfBox(r) {
+    const box = document.getElementById("confBox"); if (!box) return;
+    if (!r) { box.style.display = "none"; return; }
+    box.style.display = "";
+    const key = _confKey(r); const c = _confGet(key);
+    document.getElementById("confBoxChk").checked = c.ok;
+    document.getElementById("confBoxObs").value = c.obs || "";
+    const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
+    document.getElementById("confBoxInfo").textContent =
+      `${c.ok ? "Conferido" : "Pendente"}${nLin ? " · " + nLin + " verba(s) marcada(s)" : ""}${c.ts ? " · " + new Date(c.ts).toLocaleString("pt-BR") : ""}`;
+  }
+  function _bindConfBox() {
+    const chk = document.getElementById("confBoxChk");
+    const obs = document.getElementById("confBoxObs");
+    if (chk && !chk.dataset.b) { chk.dataset.b = "1";
+      chk.addEventListener("change", () => {
+        if (!S.funcSelecionado) return;
+        _confSetFunc(_confKey(S.funcSelecionado), chk.checked);
+        _renderConfBox(S.funcSelecionado); _renderizarTabela(); _repintarColabConf();
+      });
+    }
+    if (obs && !obs.dataset.b) { obs.dataset.b = "1";
+      obs.addEventListener("input", () => {
+        if (!S.funcSelecionado) return;
+        _confSetObs(_confKey(S.funcSelecionado), obs.value);
+        _atualizarConfContador();
+      });
+    }
+  }
+  // Repinta checkboxes da tabela colab sem re-render completo
+  function _repintarColabConf() {
+    document.querySelectorAll("#colabBody [data-confkey]").forEach(cell => {
+      const c = _confGet(cell.dataset.confkey);
+      const chk = cell.querySelector(".conf-chk"); if (chk) chk.checked = c.ok;
+    });
+  }
+  // Checkbox por verba no drill
+  function _confCellLinha(r, row) {
+    const key = _confKey(r); const lk = _lineKey(row);
+    const on = !!(_confGet(key).linhas || {})[lk];
+    return `<td class="center conf-cell-lin" data-confkey="${escAttr(key)}" data-linekey="${escAttr(lk)}">
+      <input type="checkbox" class="conf-chk-lin" ${on ? "checked" : ""} title="Marcar esta verba como conferida"></td>`;
+  }
+  function _bindConfLinhaDelegation() {
+    const tb = document.getElementById("drillBody");
+    if (!tb || tb.dataset.confLinBound === "1") return;
+    tb.dataset.confLinBound = "1";
+    tb.addEventListener("change", e => {
+      const chk = e.target.closest(".conf-chk-lin"); if (!chk) return;
+      const cell = chk.closest("[data-linekey]"); if (!cell) return;
+      _confSetLinha(cell.dataset.confkey, cell.dataset.linekey, chk.checked);
+      if (S.funcSelecionado) _renderConfBox(S.funcSelecionado);
+    });
+  }
+  // ---- Export / Import / Reset da conferência ----
+  function confExport() {
+    const blob = new Blob([JSON.stringify({
+      version: 1, app: "Auditoria de Folha", exportedAt: new Date().toISOString(),
+      mesAlvo: S.mesAlvo, conf: S.conf
+    }, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `conferencia_${(S.mesAlvo || "").replace("/", "-")}.json`;
+    a.click(); URL.revokeObjectURL(a.href);
+    const el = document.getElementById("confExpStatus");
+    if (el) { el.dataset.live = "1"; _atualizarConfContador(); }
+  }
+  function confImport(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const d = JSON.parse(e.target.result);
+        const incoming = d && d.conf ? d.conf : (d && typeof d === "object" ? d : null);
+        if (!incoming) { alert("Arquivo de conferência inválido."); return; }
+        const modo = confirm("OK = mesclar com a conferência atual.\nCancelar = substituir tudo pela do arquivo.");
+        if (modo) { Object.keys(incoming).forEach(k => { S.conf[k] = incoming[k]; }); }
+        else { S.conf = incoming; }
+        _confSave(); _atualizarConfContador(); _renderizarTabela();
+        if (S.funcSelecionado) _renderConfBox(S.funcSelecionado);
+        _renderConferencia();
+        alert("Conferência importada.");
+      } catch (err) { alert("Falha ao ler o JSON de conferência."); }
+    };
+    reader.readAsText(file);
+  }
+  function confReset() {
+    if (!confirm("Limpar TODAS as marcações de conferência e observações? Esta ação não pode ser desfeita.")) return;
+    S.conf = {}; _confSave(); _atualizarConfContador(); _renderizarTabela();
+    if (S.funcSelecionado) _renderConfBox(S.funcSelecionado);
+    _renderConferencia();
+  }
+
+  // ---- Aba Conferência (visão geral consolidada) ----
+  function _renderConferencia() {
+    const tbody = document.getElementById("confBody"); if (!tbody) return;
+    tbody.innerHTML = "";
+    if (!S.liquidoAnalise) { document.getElementById("countConf").textContent = ""; _atualizarConfContador(); return; }
+    let list = [...S.liquidoAnalise];
+    const f = document.getElementById("comboConfFiltro2")?.value || "todos";
+    const busca = (document.getElementById("entryConfBusca2")?.value || "").toUpperCase().trim();
+    if (busca) list = list.filter(r => r.Nome.toUpperCase().includes(busca) || String(r.Matrícula).includes(busca));
+    if (f === "pendentes")       list = list.filter(r => !(S.conf[_confKey(r)] && S.conf[_confKey(r)].ok));
+    else if (f === "conferidos") list = list.filter(r => S.conf[_confKey(r)] && S.conf[_confKey(r)].ok);
+    else if (f === "comobs")     list = list.filter(r => { const c = S.conf[_confKey(r)]; return c && c.obs && c.obs.trim(); });
+    else if (f === "criticos")   list = list.filter(r => STATUS_CRITICOS.has(r.STATUS));
+    // Pendentes primeiro; dentro de cada grupo, maior impacto
+    list.sort((a, b) => {
+      const ca = (S.conf[_confKey(a)] && S.conf[_confKey(a)].ok) ? 1 : 0;
+      const cb = (S.conf[_confKey(b)] && S.conf[_confKey(b)].ok) ? 1 : 0;
+      if (ca !== cb) return ca - cb;
+      return Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0);
+    });
+    list.slice(0, 2000).forEach(r => {
+      const key = _confKey(r); const c = _confGet(key);
+      const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
+      const tr = document.createElement("tr");
+      if (c.ok) tr.className = "conf-row-ok";
+      else if (STATUS_CRITICOS.has(r.STATUS)) tr.className = "critico";
+      const dNome = maskNome(r.Nome, r.Matrícula), dMat = maskMat(r.Matrícula);
+      tr.innerHTML =
+        `<td class="center conf-cell" data-confkey="${escAttr(key)}"><input type="checkbox" class="conf-chk" ${c.ok ? "checked" : ""} title="Marcar como conferido"></td>
+        <td class="center">${dMat}</td>
+        <td>${String(dNome).substring(0,55)}</td>
+        <td class="center"><span class="sbadge ${_badgeCls(r.STATUS)}">${r.STATUS}</span></td>
+        <td class="num">${fmtBRL(r.LIQUIDO_ALVO)}</td>
+        <td class="num">${fmtBRL(r.VAR_ABS)}</td>
+        <td class="center">${nLin || ""}</td>
+        <td><input type="text" class="conf-obs-inp" data-confkey="${escAttr(key)}" value="${escAttr(c.obs || "")}" placeholder="observação..."></td>
+        <td class="center"><button class="btn-xs conf-open" data-mat="${escAttr(r.Matrícula)}" data-nome="${escAttr(r.Nome)}">Abrir</button></td>`;
+      tbody.appendChild(tr);
+    });
+    _bindConfTab();
+    document.getElementById("countConf").textContent = `${Math.min(2000, list.length)} de ${list.length} colaboradores`;
+    _atualizarConfContador();
+  }
+  function _bindConfTab() {
+    const tb = document.getElementById("confBody");
+    if (!tb || tb.dataset.b === "1") return; tb.dataset.b = "1";
+    tb.addEventListener("change", e => {
+      const chk = e.target.closest(".conf-chk"); if (!chk) return;
+      const cell = chk.closest("[data-confkey]"); if (!cell) return;
+      _confSetFunc(cell.dataset.confkey, chk.checked);
+      _renderizarTabela(); _repintarColabConf();
+      if (S.funcSelecionado && _confKey(S.funcSelecionado) === cell.dataset.confkey) _renderConfBox(S.funcSelecionado);
+      const tr = chk.closest("tr"); if (tr) tr.className = chk.checked ? "conf-row-ok" : "";
+      const f = document.getElementById("comboConfFiltro2").value;
+      if (f === "pendentes" || f === "conferidos") _renderConferencia();
+    });
+    tb.addEventListener("input", e => {
+      const inp = e.target.closest(".conf-obs-inp"); if (!inp) return;
+      _confSetObs(inp.dataset.confkey, inp.value);
+      _atualizarConfContador();
+    });
+    tb.addEventListener("click", e => {
+      const btn = e.target.closest(".conf-open"); if (!btn) return;
+      _navigateToFuncDrill(btn.dataset.mat, btn.dataset.nome);
+    });
+  }
+  function _confMarcarVisiveis() {
+    const cells = document.querySelectorAll("#confBody td.conf-cell[data-confkey]");
+    if (!cells.length) return;
+    if (!confirm(`Marcar ${cells.length} colaborador(es) visível(eis) como conferido(s)?`)) return;
+    cells.forEach(cell => _confSetFunc(cell.dataset.confkey, true));
+    _renderConferencia(); _renderizarTabela(); _repintarColabConf();
   }
 
   function _carregarEmpresas() {
@@ -324,6 +589,7 @@ const APP = (() => {
     // Bind sort por cabeçalho (só uma vez, após tabela existir)
     _bindSortHeaders();
     _renderizarTabela();
+    _renderConferencia();
     S.funcSelecionado = null;
     document.getElementById("drillInfo").textContent = "(selecione um funcionário na tabela acima)";
   }
@@ -393,6 +659,7 @@ const APP = (() => {
     if (!r) return;
     // Limpa filtros para garantir que o funcionário apareça
     document.getElementById("comboStatusTab").value = "(todos)";
+    const cc = document.getElementById("comboConfTab"); if (cc) cc.value = "todos";
     document.getElementById("entryBusca").value = String(mat);
     S.sortCol = "VAR_ABS"; S.sortAsc = false;
     _renderizarTabela();
@@ -613,7 +880,8 @@ const APP = (() => {
         <td class="center"><span class="sbadge ${_badgeCls(r.STATUS_LIQ)}">${r.STATUS_LIQ}</span></td>
         <td class="num">${fmtBRL(r.VALOR_ALVO)}</td><td class="num">${fmtBRL(r.MEDIA_VERBA)}</td>
         <td class="num">${fmtBRL(r.VAR_ABS)}</td><td class="num">${fmtPct(r.VAR_PCT)}</td>
-        <td class="num">${fmtBRL(r.LIQUIDO_ALVO)}</td><td>${String(r.AUDITORIA).substring(0,100)}</td>`;
+        <td class="num">${fmtBRL(r.LIQUIDO_ALVO)}</td><td>${String(r.AUDITORIA).substring(0,100)}</td>
+        ${_confCellFunc(r)}`;
       tr.style.cursor = "pointer";
       tr.addEventListener("click", () => {
         document.querySelectorAll("#colabBody tr").forEach(t => t.classList.remove("selected"));
@@ -623,6 +891,7 @@ const APP = (() => {
       });
       tbody.appendChild(tr);
     });
+    _bindConfDelegation("colabBody");
     document.getElementById("countColab").textContent = `${Math.min(2000,df.length)} de ${df.length} linhas`;
   }
 
@@ -660,6 +929,7 @@ const APP = (() => {
     document.getElementById("comboStatusTab").value = "(todos)";
     document.getElementById("comboOrdemTab").value = "VAR_ABS";
     document.getElementById("entryBusca").value = "";
+    const cc = document.getElementById("comboConfTab"); if (cc) cc.value = "todos";
     S.sortCol = "VAR_ABS"; S.sortAsc = false;
     _renderizarTabela();
   }
@@ -671,6 +941,13 @@ const APP = (() => {
     if (stFilt && stFilt !== "(todos)") tab = tab.filter(r => r.STATUS === stFilt);
     const busca = (document.getElementById("entryBusca").value || "").toUpperCase().trim();
     if (busca) tab = tab.filter(r => r.Nome.toUpperCase().includes(busca) || String(r.Matrícula).includes(busca));
+
+    // Filtro de conferência
+    const fConf = document.getElementById("comboConfTab");
+    S.filtroConf = fConf ? fConf.value : "todos";
+    if (S.filtroConf === "pendentes") tab = tab.filter(r => !(S.conf[_confKey(r)] && S.conf[_confKey(r)].ok));
+    else if (S.filtroConf === "conferidos") tab = tab.filter(r => S.conf[_confKey(r)] && S.conf[_confKey(r)].ok);
+    else if (S.filtroConf === "comobs") tab = tab.filter(r => { const c = S.conf[_confKey(r)]; return c && c.obs && c.obs.trim(); });
 
     // Sincroniza combo com sort atual
     const col = S.sortCol || "VAR_ABS";
@@ -723,10 +1000,13 @@ const APP = (() => {
         <td class="num">${fmtBRL(r.VAR_ABS)}</td><td class="num">${fmtPct(r.VAR_PCT)}</td>
         <td class="num">${r.Z_SCORE != null ? r.Z_SCORE.toFixed(2) : "-"}</td>
         <td class="status"><span class="sbadge ${_badgeCls(r.STATUS)}">${r.STATUS}</span></td>
-        <td>${String(r.AUDITORIA).substring(0,115)}</td>`;
+        <td>${String(r.AUDITORIA).substring(0,115)}</td>
+        ${_confCellFunc(r)}`;
       tr.addEventListener("click", () => _selecionarFunc(r, tr));
       tbody.appendChild(tr);
     });
+    _bindConfDelegation("tabelaBody");
+    _atualizarConfContador();
     document.getElementById("countTabela").textContent =
       `${Math.min(1000,tab.length)} de ${tab.length} linhas exibidas (total na análise: ${S.liquido.length})`;
   }
@@ -753,6 +1033,7 @@ const APP = (() => {
     _setOptions("comboDrillClasse", ["(todos)", ...clss]);
     _setOptions("comboDrillProc", ["(todos)", ...procs]);
     document.getElementById("entryDrillVerba").value = "";
+    _renderConfBox(r);
     _renderizarDrillVerbas();
   }
 
@@ -801,9 +1082,11 @@ const APP = (() => {
         <td class="center">${cl}</td><td class="center">${row["C.R."] || "-"}</td>
         <td>${String(row["Processo"] || "-").substring(0,22)}</td>
         ${valsM.map(v => `<td class="num">${v}</td>`).join("")}
-        <td class="num drillAlvo">${fmtBRL(row[colAlvo])}</td>`;
+        <td class="num drillAlvo">${fmtBRL(row[colAlvo])}</td>
+        ${_confCellLinha(r, row)}`;
       tbody.appendChild(tr);
     });
+    _bindConfLinhaDelegation();
   }
 
   // ---- Modal Filtrar Verbas ----
@@ -974,19 +1257,42 @@ const APP = (() => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.resumo), "Resumo_Mensal");
     const ordemStatus = ["AUSENTE","NEGATIVO","ZERO_SUSPEITO","EXTREMA","EXTREMA_IQR","Z_2SIGMA","ALTA","ALTA_IQR","MATERIAL","NOVO_FUNC","OK","SEM_DADOS","DESLIGADO"];
-    const liqExp = S.liquido.map(r => ({
+    const liqExp = S.liquido.map(r => {
+      const c = S.conf[_confKeyMN(r.Matrícula, r.Nome)] || {};
+      return {
       Matrícula: r.Matrícula, Nome: r.Nome,
       MEDIA_BASELINE: r.MEDIA_BASELINE, LIQUIDO_ALVO: r.LIQUIDO_ALVO,
       VAR_ABS: r.VAR_ABS, VAR_PCT: r.VAR_PCT, Z_SCORE: r.Z_SCORE,
       STATUS: r.STATUS, AUDITORIA: r.AUDITORIA,
+      CONFERIDO: c.ok ? "SIM" : "",
+      VERBAS_CONFERIDAS: c.linhas ? Object.keys(c.linhas).length : 0,
+      OBSERVACAO: c.obs || "",
       ...Object.fromEntries(S.mesesDetectados.map(m => [m, r[m]]))
-    })).sort((a, b) => {
+      };
+    }).sort((a, b) => {
       const ia = ordemStatus.indexOf(a.STATUS), ib = ordemStatus.indexOf(b.STATUS);
       return ia !== ib ? ia - ib : Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0);
     });
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(liqExp), "Liquido_Funcionario");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.zeradosPGTO), "Verbas_PGTO_Zeradas");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.zeradosDESC), "Verbas_DESC_Zeradas");
+    // Aba de conferência (revisão humana)
+    const confExp = [];
+    (S.liquidoAnalise || S.liquido).forEach(r => {
+      const c = S.conf[_confKeyMN(r.Matrícula, r.Nome)];
+      if (!c) return;
+      const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
+      if (!c.ok && !(c.obs && c.obs.trim()) && !nLin) return;
+      confExp.push({
+        Matrícula: r.Matrícula, Nome: r.Nome, STATUS: r.STATUS,
+        CONFERIDO: c.ok ? "SIM" : "",
+        VERBAS_CONFERIDAS: nLin,
+        OBSERVACAO: c.obs || "",
+        ATUALIZADO_EM: c.ts ? new Date(c.ts).toLocaleString("pt-BR") : ""
+      });
+    });
+    if (confExp.length)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(confExp), "Conferencia");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
       { chave: "metodo", valor: S.metadata.metodo },
       { chave: "config", valor: S.configNome },
@@ -1028,7 +1334,8 @@ const APP = (() => {
   return { init, acaoReprocessar, acaoExportarExcel, downloadModeloCSV, acaoResetDados,
     selecionarClasseVerbas, limparSelecaoVerbas,
     _mvFiltrar, _mvIncluirTodos, _mvExcluirTodos, _mvAplicar,
-    _selTodosEmpresa, _selTodosProcesso, _navigateToFuncDrill };
+    _selTodosEmpresa, _selTodosProcesso, _navigateToFuncDrill,
+    confExport, confImport, confReset };
 })();
 
 document.addEventListener("DOMContentLoaded", APP.init);

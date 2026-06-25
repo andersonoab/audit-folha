@@ -280,3 +280,27 @@ tr.row-outro { background: #F7F7F7; }
   .sidebar { width: 260px; min-width: 240px; }
   .tab-nav { top: 56px; }
 }
+
+/* ===================== Conferência (revisão humana) ===================== */
+.conf-contador{font-size:12px;color:#005A64;font-weight:500;margin:6px 0 10px;padding:5px 10px;background:#F0F8FB;border-left:3px solid #0083CA;border-radius:3px}
+.conf-cell input.conf-chk,.conf-cell-lin input.conf-chk-lin{cursor:pointer;width:15px;height:15px;accent-color:#0083CA;vertical-align:middle}
+.conf-obs-dot{display:inline-block;margin-left:5px;font-size:9px;font-weight:700;color:#8C321E;background:#FBEDE8;border:1px solid #E6C4BA;border-radius:3px;padding:0 3px;vertical-align:middle}
+.conf-lin-badge{display:inline-block;margin-left:5px;font-size:9px;font-weight:700;color:#005A64;background:#E3F2F4;border:1px solid #BFE0E3;border-radius:3px;padding:0 4px;vertical-align:middle}
+.data-table tr.selected .conf-obs-dot,.data-table tr.selected .conf-lin-badge{filter:none}
+.conf-box{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;background:#F7FBFD;border:1px solid #CCCCCC;border-left:3px solid #0083CA;border-radius:5px;padding:10px 14px;margin-bottom:12px}
+.conf-box-chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:#003C64;cursor:pointer;white-space:nowrap}
+.conf-box-chk input{width:16px;height:16px;accent-color:#0083CA;cursor:pointer}
+.conf-box-info{font-size:11px;color:#646464}
+.conf-box-obs{flex:1 1 100%;min-height:46px;resize:vertical;padding:7px 10px;border:1px solid #CCCCCC;border-radius:4px;font-family:inherit;font-size:12px;color:#333}
+.conf-box-obs:focus{outline:none;border-color:#0083CA;box-shadow:0 0 0 2px rgba(0,131,202,.15)}
+
+/* Aba Conferência */
+.conf-progress-wrap{margin-top:6px}
+.conf-progress-bar{height:9px;background:#E6EEF2;border-radius:5px;overflow:hidden;margin-bottom:6px}
+.conf-progress-fill{height:100%;width:0;background:linear-gradient(90deg,#0083CA,#005A64);border-radius:5px;transition:width .35s ease}
+#tabelaConf .conf-obs-inp{width:100%;min-width:150px;padding:4px 7px;border:1px solid #CCCCCC;border-radius:3px;font-family:inherit;font-size:11px;color:#333;background:#fff}
+#tabelaConf .conf-obs-inp:focus{outline:none;border-color:#0083CA;box-shadow:0 0 0 2px rgba(0,131,202,.15)}
+#tabelaConf tr.conf-row-ok{background:#F0F8F4}
+#tabelaConf tr.conf-row-ok td{color:#2c6b4f}
+.btn-xs.conf-open{padding:2px 9px;font-size:11px;cursor:pointer;border:1px solid #0083CA;color:#0083CA;background:#fff;border-radius:3px}
+.btn-xs.conf-open:hover{background:#0083CA;color:#fff}
