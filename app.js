@@ -31,7 +31,9 @@ const APP = (() => {
     mapaAnonimo: {},
     csvBruto: null, csvNome: null,
     // conferência (revisão humana)
-    conf: {}, filtroConf: "todos"
+    conf: {}, filtroConf: "todos",
+    // ordenação por clique (asc/desc) das tabelas
+    confSort: { key: null, dir: 1 }, drillSort: { key: null, dir: 1 }, colabSort: { key: null, dir: 1 }
   };
 
   // ---- Init ----
@@ -379,13 +381,17 @@ const APP = (() => {
     else if (f === "conferidos") list = list.filter(r => S.conf[_confKey(r)] && S.conf[_confKey(r)].ok);
     else if (f === "comobs")     list = list.filter(r => { const c = S.conf[_confKey(r)]; return c && c.obs && c.obs.trim(); });
     else if (f === "criticos")   list = list.filter(r => STATUS_CRITICOS.has(r.STATUS));
-    // Pendentes primeiro; dentro de cada grupo, maior impacto
-    list.sort((a, b) => {
-      const ca = (S.conf[_confKey(a)] && S.conf[_confKey(a)].ok) ? 1 : 0;
-      const cb = (S.conf[_confKey(b)] && S.conf[_confKey(b)].ok) ? 1 : 0;
-      if (ca !== cb) return ca - cb;
-      return Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0);
-    });
+    // Pendentes primeiro; dentro de cada grupo, maior impacto — ou ordenação por clique
+    if (S.confSort.key) {
+      list.sort(_genCmp(_confValSort, S.confSort.key, S.confSort.dir));
+    } else {
+      list.sort((a, b) => {
+        const ca = (S.conf[_confKey(a)] && S.conf[_confKey(a)].ok) ? 1 : 0;
+        const cb = (S.conf[_confKey(b)] && S.conf[_confKey(b)].ok) ? 1 : 0;
+        if (ca !== cb) return ca - cb;
+        return Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0);
+      });
+    }
     list.slice(0, 2000).forEach(r => {
       const key = _confKey(r); const c = _confGet(key);
       const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
@@ -406,8 +412,23 @@ const APP = (() => {
       tbody.appendChild(tr);
     });
     _bindConfTab();
+    _bindSort("#tabelaConf", S.confSort, _renderConferencia);
     document.getElementById("countConf").textContent = `${Math.min(2000, list.length)} de ${list.length} colaboradores`;
     _atualizarConfContador();
+  }
+  function _confValSort(r, key) {
+    const c = S.conf[_confKey(r)] || {};
+    switch (key) {
+      case "conf":   return c.ok ? 1 : 0;
+      case "mat":    return String(r.Matrícula);
+      case "nome":   return String(r.Nome);
+      case "status": return String(r.STATUS);
+      case "liq":    return r.LIQUIDO_ALVO || 0;
+      case "var":    return Math.abs(r.VAR_ABS || 0);
+      case "nlin":   return c.linhas ? Object.keys(c.linhas).length : 0;
+      case "obs":    return (c.obs || "").trim() ? 1 : 0;
+      default:       return "";
+    }
   }
   function _bindConfTab() {
     const tb = document.getElementById("confBody");
@@ -443,8 +464,29 @@ const APP = (() => {
   // ============================================================
   // ---- Holerite (recibo do colaborador) — aba secundária -----
   // ============================================================
-  let HOL = { mat: null, nome: null, q: "", onlyChk: false, buscaColab: "",
+  let HOL = { mat: null, nome: null, q: "", onlyChk: false, buscaColab: "", sort: { key: null, dir: 1 },
     clas: { pgto: true, desc: true, prov: true, outro: true, base: true, encar: true } };
+
+  // Ordenação genérica por clique no cabeçalho (asc/desc)
+  function _genCmp(valFn, key, dir) {
+    return (a, b) => {
+      const va = valFn(a, key), vb = valFn(b, key);
+      if (typeof va === "number" && typeof vb === "number") return dir * (va - vb);
+      return dir * String(va == null ? "" : va).localeCompare(String(vb == null ? "" : vb), "pt-BR", { numeric: true });
+    };
+  }
+  function _bindSort(sel, state, rerender) {
+    document.querySelectorAll(sel + " th[data-sk]").forEach(th => {
+      th.classList.add("sortable"); th.style.cursor = "pointer";
+      th.classList.remove("sort-asc", "sort-desc");
+      if (state.key === th.dataset.sk) th.classList.add(state.dir > 0 ? "sort-asc" : "sort-desc");
+      th.onclick = () => {
+        const k = th.dataset.sk;
+        if (state.key === k) state.dir *= -1; else { state.key = k; state.dir = 1; }
+        rerender();
+      };
+    });
+  }
 
   function _clasKind(c) {
     const n = String(c == null ? "" : c).toLowerCase();
@@ -570,7 +612,7 @@ const APP = (() => {
     lines.sort((a, b) => (a.liq ? -1 : b.liq ? 1 : _clasRank(a.clas) - _clasRank(b.clas)) || String(a.codigo).localeCompare(String(b.codigo)));
     // filtro
     const q = HOL.q.toLowerCase().trim();
-    const visiveis = lines.filter(l => {
+    let visiveis = lines.filter(l => {
       if (l.liq) return true;
       if (!HOL.clas[_clasKind(l.clas)]) return false;
       if (HOL.onlyChk && !_holLineChecked(l)) return false;
@@ -578,6 +620,12 @@ const APP = (() => {
       return true;
     });
     const hiddenN = totalLines - visiveis.length;
+    // ordenação por clique (líquido fica fixo no topo como referência)
+    if (HOL.sort.key) {
+      const liqLine = visiveis.find(l => l.liq);
+      const rest = visiveis.filter(l => !l.liq).sort(_genCmp(_holValSort, HOL.sort.key, HOL.sort.dir));
+      visiveis = (liqLine ? [liqLine] : []).concat(rest);
+    }
     const okN = lines.filter(l => !l.liq && _holLineChecked(l)).length;
     const calcEff = totalLines - 1; // exclui líquido da contagem-base
     const liq = _holLiqValue(lines);
@@ -598,9 +646,9 @@ const APP = (() => {
 
     const months = S.mesesDetectados;
     const head = `<tr>
-      <th class="hol-sel">Calc.</th><th>Cód.</th><th>Descrição</th><th class="c">Clas.</th>
-      ${months.map(m => `<th class="r ${m === S.mesAlvo ? "hol-alvo" : ""}">${m}</th>`).join("")}
-      <th class="c hol-sparkhead">Tendência</th></tr>`;
+      <th class="hol-sel" data-sk="calc">Calc.</th><th data-sk="cod">Cód.</th><th data-sk="desc">Descrição</th><th class="c" data-sk="clas">Clas.</th>
+      ${months.map(m => `<th class="r ${m === S.mesAlvo ? "hol-alvo" : ""}" data-sk="m:${m}">${m}</th>`).join("")}
+      <th class="c hol-sparkhead" data-sk="trend">Tendência</th></tr>`;
     const body = visiveis.map(l => {
       const seq = months.map(m => l.per[m] || 0);
       const kind = _clasKind(l.clas);
@@ -651,6 +699,19 @@ const APP = (() => {
       </div>`;
     _bindHolInner();
   }
+  function _holValSort(l, key) {
+    if (key === "calc") return _holLineChecked(l) ? 1 : 0;
+    if (key === "cod")  return String(l.codigo);
+    if (key === "desc") return String(l.descricao);
+    if (key === "clas") return _clasRank(l.clas);
+    if (key && key.indexOf("m:") === 0) return l.per[key.slice(2)] || 0;
+    if (key === "trend") {
+      const seq = S.mesesDetectados.map(m => l.per[m] || 0);
+      const f = seq[0], last = seq[seq.length - 1];
+      return Math.abs(f) > 0.005 ? (last - f) / Math.abs(f) : (Math.abs(last) > 0.005 ? 1 : 0);
+    }
+    return "";
+  }
   function _bindHolInner() {
     const busca = document.getElementById("holBusca");
     if (busca) busca.addEventListener("input", e => { HOL.q = e.target.value; _holReRender(); });
@@ -669,6 +730,7 @@ const APP = (() => {
       }
       _renderConferencia();
     });
+    _bindSort("#tab-holerite .hol-table", HOL.sort, _holReRender);
   }
   function _holReRender() {
     const sc = document.getElementById("holScroll"); const top = sc ? sc.scrollTop : 0;
@@ -1127,6 +1189,21 @@ const APP = (() => {
     _renderizarTabelaColab();
   }
 
+  function _colabValSort(r, key) {
+    switch (key) {
+      case "mat":    return String(r.Matrícula);
+      case "nome":   return String(r.Nome);
+      case "status": return String(r.STATUS_LIQ);
+      case "valor":  return r.VALOR_ALVO || 0;
+      case "media":  return r.MEDIA_VERBA || 0;
+      case "var":    return Math.abs(r.VAR_ABS || 0);
+      case "varpct": return r.VAR_PCT == null ? -Infinity : r.VAR_PCT;
+      case "liq":    return r.LIQUIDO_ALVO || 0;
+      case "aud":    return String(r.AUDITORIA || "");
+      case "conf":   { const c = S.conf[_confKeyMN(r.Matrícula, r.Nome)]; return (c && c.ok) ? 1 : 0; }
+      default:       return "";
+    }
+  }
   function _renderizarTabelaColab() {
     if (!S.colabDfAtual) return;
     let df = [...S.colabDfAtual];
@@ -1134,7 +1211,8 @@ const APP = (() => {
     if (stFilt && stFilt !== "(todos)") df = df.filter(r => r.STATUS_LIQ === stFilt);
     const busca = (document.getElementById("entryColabBusca").value || "").toUpperCase().trim();
     if (busca) df = df.filter(r => r.Nome.toUpperCase().includes(busca) || String(r.Matrícula).includes(busca));
-    df.sort((a, b) => Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0));
+    if (S.colabSort.key) df.sort(_genCmp(_colabValSort, S.colabSort.key, S.colabSort.dir));
+    else df.sort((a, b) => Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0));
     const tbody = document.getElementById("colabBody"); tbody.innerHTML = "";
     df.slice(0,2000).forEach(r => {
       const tr = document.createElement("tr");
@@ -1157,6 +1235,7 @@ const APP = (() => {
       tbody.appendChild(tr);
     });
     _bindConfDelegation("colabBody");
+    _bindSort("#tabelaColab", S.colabSort, _renderizarTabelaColab);
     document.getElementById("countColab").textContent = `${Math.min(2000,df.length)} de ${df.length} linhas`;
   }
 
@@ -1333,10 +1412,31 @@ const APP = (() => {
     if (fProc  && fProc  !== "(todos)") rows = rows.filter(row => row["Processo"] === fProc);
     if (busca) rows = rows.filter(row => String(row["Código"]).toUpperCase().includes(busca) || String(row["Descrição"]).toUpperCase().includes(busca));
     const ordemClas = { PGTO: 0, DESC: 1, OUTRO: 2 };
-    rows.sort((a, b) => {
-      const oa = ordemClas[a["Clas."]] ?? 99, ob = ordemClas[b["Clas."]] ?? 99;
-      return oa !== ob ? oa - ob : String(a["Código"]).localeCompare(String(b["Código"]));
-    });
+    if (S.drillSort.key) {
+      const mAt = colAlvo;
+      const dVal = (row, key) => {
+        switch (key) {
+          case "cod":  return String(row["Código"]);
+          case "desc": return String(row["Descrição"]);
+          case "clas": return String(row["Clas."] || "");
+          case "cr":   return String(row["C.R."] || "");
+          case "proc": return String(row["Processo"] || "");
+          case "alvo": return row[mAt] || 0;
+          case "m3": case "m2": case "m1": {
+            const m = meses3[({ m3: 0, m2: 1, m1: 2 })[key] - (3 - meses3.length)];
+            return m ? (row[`${m} - Valor`] || 0) : 0;
+          }
+          case "conf": { const c = _confGet(_confKey(r)); return (c.linhas && c.linhas[_lineKey(row)]) ? 1 : 0; }
+          default: return "";
+        }
+      };
+      rows.sort(_genCmp(dVal, S.drillSort.key, S.drillSort.dir));
+    } else {
+      rows.sort((a, b) => {
+        const oa = ordemClas[a["Clas."]] ?? 99, ob = ordemClas[b["Clas."]] ?? 99;
+        return oa !== ob ? oa - ob : String(a["Código"]).localeCompare(String(b["Código"]));
+      });
+    }
     rows.forEach(row => {
       const tr = document.createElement("tr");
       const cl = String(row["Clas."] || "").trim().toUpperCase();
@@ -1354,6 +1454,7 @@ const APP = (() => {
       tbody.appendChild(tr);
     });
     _bindConfLinhaDelegation();
+    _bindSort("#tabelaDrill", S.drillSort, _renderizarDrillVerbas);
   }
 
   // ---- Modal Filtrar Verbas ----

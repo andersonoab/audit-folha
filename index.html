@@ -255,10 +255,10 @@
           <div class="table-wrap" style="max-height:270px">
             <table class="data-table" id="tabelaDrill" style="font-size:11px">
               <thead><tr>
-                <th>Código</th><th>Descrição</th><th>Clas.</th>
-                <th>C.R.</th><th>Processo</th>
-                <th id="thM3">M-3</th><th id="thM2">M-2</th><th id="thM1">M-1</th>
-                <th id="thAlvo">Alvo</th><th>Conf.</th>
+                <th data-sk="cod">Código</th><th data-sk="desc">Descrição</th><th data-sk="clas">Clas.</th>
+                <th data-sk="cr">C.R.</th><th data-sk="proc">Processo</th>
+                <th id="thM3" data-sk="m3">M-3</th><th id="thM2" data-sk="m2">M-2</th><th id="thM1" data-sk="m1">M-1</th>
+                <th id="thAlvo" data-sk="alvo">Alvo</th><th data-sk="conf">Conf.</th>
               </tr></thead>
               <tbody id="drillBody"></tbody>
             </table>
@@ -334,9 +334,9 @@
       <div class="table-wrap" style="max-height:300px">
         <table class="data-table" id="tabelaColab">
           <thead><tr>
-            <th>Mat.</th><th>Nome</th><th>Status Liq.</th>
-            <th>Valor Mês</th><th>Média Verba</th>
-            <th>Var R$</th><th>Var %</th><th>Líquido Alvo</th><th>Auditoria</th><th>Conf.</th>
+            <th data-sk="mat">Mat.</th><th data-sk="nome">Nome</th><th data-sk="status">Status Liq.</th>
+            <th data-sk="valor">Valor Mês</th><th data-sk="media">Média Verba</th>
+            <th data-sk="var">Var R$</th><th data-sk="varpct">Var %</th><th data-sk="liq">Líquido Alvo</th><th data-sk="aud">Auditoria</th><th data-sk="conf">Conf.</th>
           </tr></thead>
           <tbody id="colabBody"></tbody>
         </table>
@@ -391,14 +391,14 @@
       <div class="table-wrap" style="max-height:520px">
         <table class="data-table" id="tabelaConf">
           <thead><tr>
-            <th>Conf.</th>
-            <th>Mat.</th>
-            <th>Nome</th>
-            <th>Status</th>
-            <th>Líquido Alvo</th>
-            <th>Var R$</th>
-            <th>Verbas conf.</th>
-            <th>Observação</th>
+            <th data-sk="conf">Conf.</th>
+            <th data-sk="mat">Mat.</th>
+            <th data-sk="nome">Nome</th>
+            <th data-sk="status">Status</th>
+            <th data-sk="liq">Líquido Alvo</th>
+            <th data-sk="var">Var R$</th>
+            <th data-sk="nlin">Verbas conf.</th>
+            <th data-sk="obs">Observação</th>
             <th></th>
           </tr></thead>
           <tbody id="confBody"></tbody>
