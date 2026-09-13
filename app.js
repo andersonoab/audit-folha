@@ -18,6 +18,8 @@ const APP = (() => {
     resumo: null, liquido: null, liquidoAnalise: null,
     salarioV20: null, zeradosPGTO: null, zeradosDESC: null,
     metadata: {}, dfFiltrado: null,
+    // descontos para revisar + modo mês único + filtro da Visão Geral
+    descontosRevisar: null, modoMesUnico: false, vgBusca: "",
     // análise de verbas
     verbasAvCompleta: null, dfAvBase: null,
     codigosColabAtual: [], colabDfAtual: null,
@@ -33,7 +35,7 @@ const APP = (() => {
     // conferência (revisão humana)
     conf: {}, filtroConf: "todos",
     // ordenação por clique (asc/desc) das tabelas
-    confSort: { key: null, dir: 1 }, drillSort: { key: null, dir: 1 }, colabSort: { key: null, dir: 1 }
+    confSort: { key: null, dir: 1 }, drillSort: { key: null, dir: 1 }, colabSort: { key: null, dir: 1 }, descSort: { key: null, dir: 1 }
   };
 
   // ---- Init ----
@@ -100,6 +102,21 @@ const APP = (() => {
     });
     // Reset dados
     document.getElementById("btnResetDados").addEventListener("click", acaoResetDados);
+    // Visão Geral: busca por colaborador/matrícula no painel de descontos
+    const vgB = document.getElementById("vgBusca");
+    if (vgB) vgB.addEventListener("input", e => { S.vgBusca = e.target.value; if (S.descontosRevisar) _renderPainelDescontos(); });
+    const vgBL = document.getElementById("vgBuscaLimpar");
+    if (vgBL) vgBL.addEventListener("click", () => { S.vgBusca = ""; const i = document.getElementById("vgBusca"); if (i) i.value = ""; if (S.descontosRevisar) _renderPainelDescontos(); });
+    const pd = document.getElementById("painelDescontos");
+    if (pd && pd.dataset.b !== "1") {
+      pd.dataset.b = "1";
+      pd.addEventListener("click", e => {
+        const tr = e.target.closest(".desc-row"); if (!tr) return;
+        const fk = tr.dataset.funckey;
+        const ev = (S.descontosRevisar || []).find(x => x.funcKey === fk);
+        if (ev) _abrirHolerite(ev.Matrícula, ev.Nome);
+      });
+    }
   }
 
   function _popularComboMetodo() {
@@ -197,9 +214,12 @@ const APP = (() => {
   // ============================================================
   // ---- Conferência (revisão humana) — portado do Recibo ------
   // ============================================================
-  const CONF_KEY = "af_conf_v1";
-  function _confKey(r)   { return String(r.Matrícula) + "|||" + String(r.Nome); }
-  function _confKeyMN(m, n) { return String(m) + "|||" + String(n); }
+  const CONF_KEY = "af_conf_v2"; // v2: chave agora inclui a competência (mês-alvo)
+  function _confComp() { return String(S.mesAlvo || ""); }
+  // Conferência por competência: "conferido" de um mês não reaparece no mês seguinte.
+  // (Dimensão Empresa na conferência fica como próximo passo — exige empresa no contexto do holerite.)
+  function _confKey(r)   { return String(r.Matrícula) + "|||" + String(r.Nome) + "|||" + _confComp(); }
+  function _confKeyMN(m, n) { return String(m) + "|||" + String(n) + "|||" + _confComp(); }
   function _lineKey(row) { return String(row["Código"]||"") + "||" + String(row["Descrição"]||"") + "||" + String(row["Clas."]||""); }
   function _confLoad() {
     try { const r = JSON.parse(localStorage.getItem(CONF_KEY)); S.conf = (r && typeof r === "object") ? r : {}; }
@@ -260,6 +280,7 @@ const APP = (() => {
       <input type="checkbox" class="conf-chk" onclick="event.stopPropagation()" ${c.ok ? "checked" : ""} title="Marcar funcionário como conferido">${dot}${lin}</td>`;
   }
   function escAttr(s) { return String(s == null ? "" : s).replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function escHtml(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
   // Delegação de eventos para checkboxes de funcionário em qualquer tbody
   function _bindConfDelegation(tbodyId) {
     const tb = document.getElementById(tbodyId);
@@ -854,7 +875,14 @@ const APP = (() => {
   function acaoReprocessar() {
     if (!S.df) return;
     if (!S.empresasSel.length) { alert("Selecione ao menos uma empresa."); return; }
-    if (!S.mesesBaseline.length) { alert("Selecione ao menos um mês de baseline."); return; }
+    // Modo mês único: se só há um mês no arquivo, segue sem baseline (sem comparativos).
+    // Se há vários meses mas o usuário desmarcou todos, aí sim é erro do usuário.
+    const modoMesUnico = !S.mesesBaseline.length;
+    if (modoMesUnico && S.mesesDetectados.length > 1) {
+      alert("Selecione ao menos um mês de baseline (ou use um arquivo com um único mês para o modo sem histórico).");
+      return;
+    }
+    S.modoMesUnico = modoMesUnico;
 
     let dfF = S.df.filter(r => S.empresasSel.includes((r["Empresa"] || "").trim()));
     if (S.processosDisp.length > 1) dfF = dfF.filter(r => S.processosSel.includes((r["Processo"] || "").trim()));
@@ -882,9 +910,10 @@ const APP = (() => {
 
     const desligados = detectarDesligados(dfF, S.mesAlvo);
     S.resumo     = resumoMacro(dfF, S.mesesDetectados);
-    const { result: liq, metadata } = liquidoPorFuncionario(dfF, S.mesesDetectados, S.mesAlvo, S.mesesBaseline, desligados, cfg);
+    const { result: liq, metadata } = liquidoPorFuncionario(dfF, S.mesesDetectados, S.mesAlvo, S.mesesBaseline, desligados, cfg, modoMesUnico);
     S.liquido    = liq;
     S.metadata   = metadata;
+    S.descontosRevisar = descontosParaRevisar(dfF, S.mesesDetectados, S.mesAlvo, S.mesesBaseline, liq, PARAMS_REVISAO);
     S.salarioV20 = salarioVerba20PorMes(dfF, S.mesesDetectados);
     S.zeradosPGTO = verbasZeradas(dfF, "PGTO", S.mesAlvo, S.mesesBaseline);
     S.zeradosDESC = verbasZeradas(dfF, "DESC", S.mesAlvo, S.mesesBaseline);
@@ -935,6 +964,7 @@ const APP = (() => {
   function _renderVisaoGeral() {
     const la = S.resumo.find(r => r.Mes === S.mesAlvo);
     const lb = S.resumo.filter(r => S.mesesBaseline.includes(r.Mes));
+    const semHist = S.modoMesUnico || !lb.length;
     const _med = (fn) => lb.length ? mean(lb.map(fn)) : 0;
     const mPGTO = _med(r=>r.PGTO), mDESC = _med(r=>r.DESC), mLiq = _med(r=>r.Liquido);
     const vP = mPGTO ? ((la.PGTO/mPGTO)-1)*100 : 0;
@@ -942,16 +972,100 @@ const APP = (() => {
     const vL = mLiq  ? ((la.Liquido/mLiq)-1)*100 : 0;
     const diff9950 = la.Liquido - la.Verba9950;
     const pct9950  = la.Verba9950 ? (diff9950/la.Verba9950)*100 : 0;
-    _card("cardPGTO", `PGTO ${S.mesAlvo}`, fmtBRL(la.PGTO),   `${fmtPct(vP)} vs baseline`, vP < -10 ? "alerta" : "");
-    _card("cardDESC", `DESC ${S.mesAlvo}`, fmtBRL(la.DESC),   `${fmtPct(vD)} vs baseline`, vD < -10 ? "alerta" : "");
-    _card("cardLIQ",  `Líquido ${S.mesAlvo}`, fmtBRL(la.Liquido), `${fmtPct(vL)} vs baseline`, vL < -10 ? "alerta" : "");
+    const sub = (v) => semHist ? "sem histórico" : `${fmtPct(v)} vs baseline`;
+    _card("cardPGTO", `PGTO ${S.mesAlvo}`, fmtBRL(la.PGTO),   sub(vP), (!semHist && vP < -10) ? "alerta" : "");
+    _card("cardDESC", `DESC ${S.mesAlvo}`, fmtBRL(la.DESC),   sub(vD), (!semHist && vD < -10) ? "alerta" : "");
+    _card("cardLIQ",  `Líquido ${S.mesAlvo}`, fmtBRL(la.Liquido), sub(vL), (!semHist && vL < -10) ? "alerta" : "");
     _card("card9950", "Verba 9950", fmtBRL(la.Verba9950), `Diff: ${fmtBRL(diff9950)} (${fmtPct(pct9950)})`, Math.abs(pct9950) > 15 ? "alerta" : "");
     const nDesl = S.liquido.filter(r => r.STATUS === "DESLIGADO").length;
-    document.getElementById("avisoDesligados").textContent = nDesl
-      ? `Desligados detectados: ${nDesl} | ${S.excluirDesligados ? "excluídos da análise de líquido" : "incluídos"}.` : "";
+    const avisos = [];
+    if (semHist) avisos.push("Modo mês único: sem histórico disponível — comparativos desativados.");
+    if (nDesl) avisos.push(`Desligados detectados: ${nDesl} | ${S.excluirDesligados ? "excluídos da análise de líquido" : "incluídos"}.`);
+    document.getElementById("avisoDesligados").textContent = avisos.join(" ");
     renderEvolucaoMensal("chartEvolucao", S.resumo, S.mesAlvo, S.mesesBaseline);
     renderConciliacao("chartConciliacao", la, S.mesAlvo);
     renderDistribuicaoStatus("chartStatus", S.liquidoAnalise);
+    _renderPainelDescontos();
+  }
+
+  // ---- Painel "Descontos para revisar" (Visão Geral) ----
+  function _filtraDescontos() {
+    const q = (S.vgBusca || "").trim().toLowerCase();
+    let lista = S.descontosRevisar || [];
+    if (q) lista = lista.filter(e =>
+      String(e.Matrícula).toLowerCase().includes(q) ||
+      String(e.Nome).toLowerCase().includes(q) ||
+      String(e.Código).toLowerCase().includes(q) ||
+      String(e.Descrição).toLowerCase().includes(q));
+    return lista;
+  }
+
+  function _renderPainelDescontos() {
+    const wrap = document.getElementById("painelDescontos");
+    if (!wrap) return;
+    const todos = S.descontosRevisar || [];
+    let lista = _filtraDescontos();
+    // Ordenação por clique no cabeçalho (asc/desc). Sem clique, mantém a ordem
+    // padrão (prioridade -> comprometimento -> valor) definida em descontosParaRevisar.
+    if (S.descSort.key) lista = lista.slice().sort(_genCmp(_descValSort, S.descSort.key, S.descSort.dir));
+    // KPIs (sempre sobre a população completa — o filtro é só de exibição)
+    const obrig = todos.filter(e => e.PRIORIDADE === "Revisão obrigatória");
+    const totalDesc = todos.reduce((s, e) => s + Math.abs(e.VALOR), 0);
+    const nColab = new Set(todos.map(e => e.funcKey)).size;
+    const kpis = document.getElementById("descKpis");
+    if (kpis) kpis.innerHTML =
+      _kpi("Colaboradores afetados", fmtInt(nColab)) +
+      _kpi("Descontos sinalizados", fmtInt(todos.length)) +
+      _kpi("Revisão obrigatória", fmtInt(obrig.length), obrig.length ? "alerta" : "") +
+      _kpi("Total sinalizado", fmtBRL(totalDesc));
+
+    // Gráfico de dispersão (valor x comprometimento) — casos similares
+    if (typeof renderScatterDescontos === "function") renderScatterDescontos("chartDescontos", todos);
+
+    // Tabela sem cores (Empresa | Matrícula | Nome | Verba | Valor | Referência | Impacto % | Prioridade | Motivo)
+    const body = document.getElementById("descBody");
+    if (!body) return;
+    if (!lista.length) {
+      body.innerHTML = `<tr><td colspan="9" class="hint-text" style="text-align:center;padding:14px">${
+        todos.length ? "Nenhum desconto para o filtro atual." : "Nenhum desconto sinalizado para revisão neste mês."}</td></tr>`;
+    } else {
+      body.innerHTML = lista.slice(0, 500).map(e => {
+        const nome = maskNome(e.Nome, e.Matrícula), mat = maskMat(e.Matrícula);
+        const comp = e.COMPROMETIMENTO != null ? `${e.COMPROMETIMENTO.toFixed(1)}%` : "-";
+        const prioCls = e.PRIORIDADE === "Revisão obrigatória" ? "prio-obrig" : "prio-alerta";
+        return `<tr data-funckey="${escAttr(e.funcKey)}" class="desc-row" title="Abrir holerite">
+          <td>${escHtml(e.Empresa)}</td>
+          <td class="center">${escHtml(mat)}</td>
+          <td>${escHtml(nome)}</td>
+          <td>${escHtml(String(e.Código))} — ${escHtml(e.Descrição || "")}</td>
+          <td class="num">${fmtBRL(e.VALOR)}</td>
+          <td class="num">${e.REFERENCIA ? fmtBRL(e.REFERENCIA) : "—"}</td>
+          <td class="num">${comp}</td>
+          <td><span class="prio-badge ${prioCls}">${e.PRIORIDADE}</span></td>
+          <td style="font-size:11px">${escHtml(e.MOTIVO)}</td>
+        </tr>`;
+      }).join("");
+    }
+    document.getElementById("descCount").textContent =
+      `${lista.length} de ${todos.length} desconto(s)` + (lista.length > 500 ? " (500 exibidos)" : "");
+    _bindSort("#tabelaDescontos", S.descSort, _renderPainelDescontos);
+  }
+
+  // Acessor de valor para ordenação da tabela de descontos
+  function _descValSort(e, key) {
+    switch (key) {
+      case "Matrícula": { const n = parseFloat(String(e.Matrícula).replace(/\D/g, "")); return isNaN(n) ? String(e.Matrícula) : n; }
+      case "Código":    { const n = parseFloat(String(e.Código).replace(/\D/g, "")); return isNaN(n) ? String(e.Código) : n; }
+      case "VALOR":          return Math.abs(e.VALOR || 0);
+      case "REFERENCIA":     return Math.abs(e.REFERENCIA || 0);
+      case "COMPROMETIMENTO": return e.COMPROMETIMENTO == null ? -1 : e.COMPROMETIMENTO;
+      case "PRIORIDADE":     return e.PRIORIDADE === "Revisão obrigatória" ? 0 : 1;
+      default:               return e[key] != null ? e[key] : "";
+    }
+  }
+
+  function _kpi(label, valor, cls = "") {
+    return `<div class="desc-kpi ${cls}"><div class="desc-kpi-label">${label}</div><div class="desc-kpi-valor">${valor}</div></div>`;
   }
 
   function _renderHeadcount() {
@@ -977,6 +1091,15 @@ const APP = (() => {
   function _renderVerbasZeradas() {
     renderVerbasZeradas("chartZeradosPGTO", S.zeradosPGTO, `PGTO zeradas em ${S.mesAlvo}`, IG_AZUL);
     renderVerbasZeradas("chartZeradosDESC", S.zeradosDESC, `DESC zeradas em ${S.mesAlvo}`, IG_VINHO);
+  }
+
+  // ---- Navegação: painel de descontos → Holerite ----
+  function _abrirHolerite(mat, nome) {
+    _switchTab("holerite");
+    HOL.mat = mat; HOL.nome = nome; HOL.buscaColab = String(mat);
+    HOL.q = ""; HOL.onlyChk = false;
+    const hb = document.getElementById("holBuscaColab"); if (hb) hb.value = String(mat);
+    _renderHolerite();
   }
 
   // ---- Navegação: scatter → Tabela & Drill-down ----
@@ -1624,13 +1747,14 @@ const APP = (() => {
     if (!S.liquido) return;
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.resumo), "Resumo_Mensal");
-    const ordemStatus = ["AUSENTE","NEGATIVO","ZERO_SUSPEITO","EXTREMA","EXTREMA_IQR","Z_2SIGMA","ALTA","ALTA_IQR","MATERIAL","NOVO_FUNC","OK","SEM_DADOS","DESLIGADO"];
+    const ordemStatus = ["AUSENTE","NEGATIVO","ZERO_SUSPEITO","EXTREMA","EXTREMA_IQR","QUEDA_LIQUIDO","Z_2SIGMA","ALTA","ALTA_IQR","MATERIAL","NOVO_FUNC","SEM_HISTORICO","OK","SEM_DADOS","DESLIGADO"];
     const liqExp = S.liquido.map(r => {
       const c = S.conf[_confKeyMN(r.Matrícula, r.Nome)] || {};
       return {
-      Matrícula: r.Matrícula, Nome: r.Nome,
+      Empresa: r.Empresa, Matrícula: r.Matrícula, Nome: r.Nome,
       MEDIA_BASELINE: r.MEDIA_BASELINE, LIQUIDO_ALVO: r.LIQUIDO_ALVO,
       VAR_ABS: r.VAR_ABS, VAR_PCT: r.VAR_PCT, Z_SCORE: r.Z_SCORE,
+      V9950_ALVO: r.V9950_ALVO, DIFF_9950: r.DIFF_9950, FLAG_9950: r.FLAG_9950 ? "SIM" : "",
       STATUS: r.STATUS, AUDITORIA: r.AUDITORIA,
       CONFERIDO: c.ok ? "SIM" : "",
       VERBAS_CONFERIDAS: c.linhas ? Object.keys(c.linhas).length : 0,
@@ -1661,6 +1785,17 @@ const APP = (() => {
     });
     if (confExp.length)
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(confExp), "Conferencia");
+    // Aba de descontos para revisar
+    const descExp = (S.descontosRevisar || []).map(e => ({
+      Empresa: e.Empresa, Matrícula: e.Matrícula, Nome: e.Nome,
+      Código: e.Código, Descrição: e.Descrição, Valor: e.VALOR, Referencia: e.REFERENCIA,
+      Tipo: e.TIPO, Prioridade: e.PRIORIDADE,
+      Comprometimento_pct: e.COMPROMETIMENTO != null ? +e.COMPROMETIMENTO.toFixed(2) : "",
+      Z_verba: e.Z_VERBA != null ? +e.Z_VERBA.toFixed(2) : "",
+      Motivo: e.MOTIVO
+    }));
+    if (descExp.length)
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(descExp), "Descontos_Revisar");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
       { chave: "metodo", valor: S.metadata.metodo },
       { chave: "config", valor: S.configNome },

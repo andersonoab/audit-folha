@@ -427,3 +427,47 @@ function renderTopVerbas(canvasId, topVerbas, mesAlvo, verbasExcluidas) {
     })
   }));
 }
+
+// ---- Dispersão dos descontos para revisar (Visão Geral) ----
+// x = valor do desconto (R$) ; y = comprometimento do líquido habitual (%)
+function renderScatterDescontos(canvasId, eventos) {
+  const cv = _canvas(canvasId); if (!cv) return;
+  const pts = (eventos || []).filter(e => e.COMPROMETIMENTO != null);
+  if (!pts.length) { _semDados(canvasId, "Nenhum desconto sinalizado para revisão."); return; }
+
+  const mk = (e) => ({ x: Math.abs(e.VALOR), y: +e.COMPROMETIMENTO.toFixed(2), _e: e });
+  const obrig = pts.filter(e => e.PRIORIDADE === "Revisão obrigatória").map(mk);
+  const alerta = pts.filter(e => e.PRIORIDADE !== "Revisão obrigatória").map(mk);
+  const limite = (typeof PARAMS_REVISAO !== "undefined") ? PARAMS_REVISAO.comprometimento_pct : 10;
+  const maxX = Math.max(...pts.map(e => Math.abs(e.VALOR)), 1) * 1.1;
+  const maxY = Math.max(...pts.map(e => e.COMPROMETIMENTO), limite) * 1.15;
+
+  _reg(canvasId, new Chart(cv, {
+    type: "scatter",
+    data: { datasets: [
+      { label: "Revisão obrigatória", data: obrig, backgroundColor: IG_VINHO,
+        pointStyle: "triangle", radius: 6, hoverRadius: 8, borderColor: "white", borderWidth: 1 },
+      { label: "Alerta", data: alerta, backgroundColor: IG_AZUL_CLR,
+        pointStyle: "circle", radius: 5, hoverRadius: 7, borderColor: "white", borderWidth: 1 },
+      { type: "line", label: `Limite ${limite}%`, data: [{x:0,y:limite},{x:maxX,y:limite}],
+        borderColor: IG_LARANJA, borderDash: [5,4], borderWidth: 1.2, pointRadius: 0, fill: false }
+    ]},
+    options: _baseOptions({
+      scales: {
+        x: { type: "linear", min: 0, max: maxX, grid: { color: "#E8E8E8" },
+             title: { display: true, text: "Valor do desconto (R$)", font: FONT_SM, color: TEXTO_SECUNDARIO },
+             ticks: { callback: fmtBRLEixo, font: FONT_SM, color: TEXTO_SECUNDARIO } },
+        y: { type: "linear", min: 0, max: maxY, grid: { color: "#E8E8E8" },
+             title: { display: true, text: "% do líquido comprometido", font: FONT_SM, color: TEXTO_SECUNDARIO },
+             ticks: { callback: v => v + "%", font: FONT_SM, color: TEXTO_SECUNDARIO } }
+      },
+      plugins: {
+        legend: { labels: { font: FONT_DEF, color: TEXTO_PRINCIPAL, boxWidth: 14, padding: 10, usePointStyle: true } },
+        tooltip: { callbacks: { label: (ctx) => {
+          const e = ctx.raw._e; if (!e) return "";
+          return `${e.Matrícula} ${e.Nome} — verba ${e.Código}: ${fmtBRL(e.VALOR)} (${e.COMPROMETIMENTO.toFixed(1)}%)`;
+        } } }
+      }
+    })
+  }));
+}

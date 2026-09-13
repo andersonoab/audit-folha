@@ -18,8 +18,27 @@ const COR_DESLIGADO  = "#646464";
 
 const STATUS_CRITICOS = new Set([
   "AUSENTE","NEGATIVO","ZERO_SUSPEITO","EXTREMA","ALTA","Z_2SIGMA",
-  "EXTREMA_IQR","ALTA_IQR","MAD_OUTLIER","MATERIAL"
+  "EXTREMA_IQR","ALTA_IQR","MAD_OUTLIER","MATERIAL","QUEDA_LIQUIDO"
 ]);
+
+// ============================================================
+// Parâmetros da REVISÃO DE DESCONTOS (independentes do método
+// estatístico do líquido). Ajuste aqui os pisos operacionais.
+// Não são limites legais nem prova de erro — apenas critérios
+// operacionais para priorizar a revisão humana.
+// ============================================================
+const PARAMS_REVISAO = {
+  queda_liq_abs:      500,   // queda do líquido (R$) que dispara alerta no próprio líquido
+  queda_liq_pct:      10,    // OU queda percentual do líquido...
+  queda_liq_abs_min:  200,   // ...desde que o impacto absoluto seja pelo menos isto
+  piso_desc_revisao:  1000,  // desconto (novo ou salto) a partir deste valor => revisão obrigatória
+  piso_desc_novo:     500,   // desconto que aparece pela 1ª vez a partir deste valor => sinalizar
+  comprometimento_pct: 10,   // % do líquido habitual comprometido pelo desconto que dispara alerta
+  salto_desc_pct:     50,    // aumento (%) de um desconto recorrente que dispara alerta
+  mad_z_verba:        3.5,   // z* robusto (mediana/MAD) entre colegas na MESMA verba => "caso similar"
+  diff9950_abs:       1.0,   // divergência (R$) entre líquido calculado e verba 9950 por colaborador
+  sensiveis:          []     // códigos de verbas sensíveis (ex.: ["9201","9310"]) — revisão a partir de piso menor
+};
 
 const PARAMETROS_MERCADO = {
   "Shewhart 3-sigma + Materialidade ISA 320 (recomendado)": {
@@ -64,7 +83,7 @@ function fmtInt(x) {
 }
 function corStatus(status) {
   if (STATUS_CRITICOS.has(status)) return IG_VERMELHO;
-  const m = { OK: IG_AZUL_CLR, NOVO_FUNC: IG_AZUL_ESC, SEM_DADOS: GRID_CINZA, DESLIGADO: COR_DESLIGADO };
+  const m = { OK: IG_AZUL_CLR, NOVO_FUNC: IG_AZUL_ESC, SEM_HISTORICO: TEXTO_SECUNDARIO, SEM_DADOS: GRID_CINZA, DESLIGADO: COR_DESLIGADO };
   return m[status] || GRID_CINZA;
 }
 function normCod(cod) {
@@ -142,9 +161,7 @@ function detectarDesligados(df, mesAlvo) {
   const visto = new Set();
   const limite = ultimoDiaMes(mesAlvo);
   for (const row of df) {
-    const mat = row["Matrícula"] || row["Matricula"] || "";
-    const nome = row["Nome"] || "";
-    const key = mat + "|||" + nome;
+    const key = funcKey(row);
     if (visto.has(key)) continue;
     visto.add(key);
     const rescStr = (row["Data Rescisão"] || row["Data Rescisao"] || "").trim();
@@ -161,12 +178,17 @@ function detectarDesligados(df, mesAlvo) {
 // Helper: pega campo matrícula tolerando variações de nome de coluna
 function getMatricula(row) { return row["Matrícula"] || row["Matricula"] || ""; }
 function getNome(row) { return row["Nome"] || ""; }
+function getEmpresa(row) { return (row["Empresa"] || "").trim(); }
+// Chave única do colaborador = Empresa + Matrícula + Nome
+// (antes era só Matrícula+Nome, o que somava a mesma matrícula em CNPJs distintos)
+function funcKey(row) { return getEmpresa(row) + "|||" + getMatricula(row) + "|||" + getNome(row); }
 
 // ---- Resumo macro ----
 function resumoMacro(df, meses) {
   return meses.map(m => {
     const col = `${m} - Valor`;
-    const pgtoRows = df.filter(r => r["Clas."] === "PGTO");
+    // 9950 (líquido informado) nunca entra no somatório de PGTO — é só referência.
+    const pgtoRows = df.filter(r => r["Clas."] === "PGTO" && String(r["Código"]).trim() !== "9950");
     const descRows  = df.filter(r => r["Clas."] === "DESC");
     const v9950     = df.filter(r => String(r["Código"]).trim() === "9950");
     const pgto = pgtoRows.reduce((s, r) => s + (r[col] || 0), 0);
@@ -192,28 +214,36 @@ function salarioVerba20PorMes(df, meses, codigoVerba = "0020") {
 }
 
 // ---- Líquido por funcionário (núcleo da auditoria) ----
-function liquidoPorFuncionario(df, meses, mesAlvo, mesesBaseline, desligados, configParam) {
+function liquidoPorFuncionario(df, meses, mesAlvo, mesesBaseline, desligados, configParam, modoMesUnico) {
   configParam = configParam || PARAMETROS_MERCADO["Shewhart 3-sigma + Materialidade ISA 320 (recomendado)"];
   desligados = desligados || {};
+  mesesBaseline = mesesBaseline || [];
+  // Modo mês único: sem histórico disponível para comparar. Detecta sozinho se não vier o flag.
+  if (modoMesUnico == null) modoMesUnico = mesesBaseline.length === 0;
 
-  // Índice por mat+nome para performance
-  const idxPGTO = {}, idxDESC = {};
+  // Índice por Empresa+Matrícula+Nome para performance
+  const idxPGTO = {}, idxDESC = {}, idx9950 = {};
   for (const r of df) {
-    const key = getMatricula(r) + "|||" + getNome(r);
+    const key = funcKey(r);
     const clas = r["Clas."] || "";
+    const cod9950 = String(r["Código"]).trim() === "9950";
+    // 9950 é a verba de LÍQUIDO informado — serve só de referência de conciliação,
+    // nunca entra na soma PGTO−DESC (senão dobraria o líquido calculado).
+    if (cod9950) { if (!idx9950[key]) idx9950[key] = []; idx9950[key].push(r); continue; }
     if (clas === "PGTO") { if (!idxPGTO[key]) idxPGTO[key] = []; idxPGTO[key].push(r); }
     if (clas === "DESC") { if (!idxDESC[key]) idxDESC[key] = []; idxDESC[key].push(r); }
   }
 
   const funcSet = new Map();
   for (const r of df) {
-    const key = getMatricula(r) + "|||" + getNome(r);
-    if (!funcSet.has(key)) funcSet.set(key, { mat: getMatricula(r), nome: getNome(r) });
+    const key = funcKey(r);
+    if (!funcSet.has(key)) funcSet.set(key, { empresa: getEmpresa(r), mat: getMatricula(r), nome: getNome(r) });
   }
 
+  const colAlvo = `${mesAlvo} - Valor`;
   const result = [];
-  for (const [key, { mat, nome }] of funcSet) {
-    const obj = { Matrícula: mat, Nome: nome };
+  for (const [key, { empresa, mat, nome }] of funcSet) {
+    const obj = { Empresa: empresa, Matrícula: mat, Nome: nome };
     for (const m of meses) {
       const col = `${m} - Valor`;
       const pgto = (idxPGTO[key] || []).reduce((s, r) => s + (r[col] || 0), 0);
@@ -229,6 +259,10 @@ function liquidoPorFuncionario(df, meses, mesAlvo, mesesBaseline, desligados, co
     obj.VAR_ABS  = obj.MEDIA_BASELINE != null ? obj.LIQUIDO_ALVO - obj.MEDIA_BASELINE : null;
     obj.VAR_PCT  = obj.MEDIA_BASELINE ? ((obj.LIQUIDO_ALVO / obj.MEDIA_BASELINE) - 1) * 100 : null;
     obj.Z_SCORE  = (obj.VAR_ABS != null && obj.DESVIO_BASELINE) ? obj.VAR_ABS / obj.DESVIO_BASELINE : null;
+    // Conciliação individual com a verba 9950 (líquido calculado x líquido informado)
+    obj.V9950_ALVO = (idx9950[key] || []).reduce((s, r) => s + (r[colAlvo] || 0), 0);
+    obj.DIFF_9950  = obj.LIQUIDO_ALVO - obj.V9950_ALVO;
+    obj.FLAG_9950  = obj.V9950_ALVO !== 0 && Math.abs(obj.DIFF_9950) >= PARAMS_REVISAO.diff9950_abs;
     obj.DATA_RESCISAO = desligados[key] || null;
     result.push(obj);
   }
@@ -245,16 +279,20 @@ function liquidoPorFuncionario(df, meses, mesAlvo, mesesBaseline, desligados, co
   const metodo = configParam.metodo || "sigma";
 
   for (const r of result) {
-    r.STATUS   = _calcStatus(r, metodo, configParam, q1, q3, iqr, materialidade);
+    r.STATUS   = _calcStatus(r, metodo, configParam, q1, q3, iqr, materialidade, modoMesUnico);
     r.AUDITORIA = _calcAuditoria(r, mesAlvo, configParam);
   }
-  return { result, metadata: { metodo, q1, q3, iqr, folhaTotalAlvo, materialidade } };
+  return { result, metadata: { metodo, q1, q3, iqr, folhaTotalAlvo, materialidade, modoMesUnico } };
 }
 
-function _calcStatus(r, metodo, cfg, q1, q3, iqr, mat) {
+function _calcStatus(r, metodo, cfg, q1, q3, iqr, mat, modoMesUnico) {
   if (r.DATA_RESCISAO) return "DESLIGADO";
-  if (r.MEDIA_BASELINE == null || r.MEDIA_BASELINE === 0)
-    return r.LIQUIDO_ALVO !== 0 ? "NOVO_FUNC" : "SEM_DADOS";
+  // Sem histórico: em modo mês único é situação normal (SEM_HISTORICO, neutro),
+  // não trata todo mundo como NOVO_FUNC indevidamente.
+  if (r.MEDIA_BASELINE == null || r.MEDIA_BASELINE === 0) {
+    if (r.LIQUIDO_ALVO === 0) return "SEM_DADOS";
+    return modoMesUnico ? "SEM_HISTORICO" : "NOVO_FUNC";
+  }
   if (r.LIQUIDO_ALVO === 0 && r.MEDIA_BASELINE > 0) return "AUSENTE";
   if (r.LIQUIDO_ALVO < -100) return "NEGATIVO";
   if (r.LIQUIDO_ALVO < 500 && r.MEDIA_BASELINE >= 1000) return "ZERO_SUSPEITO";
@@ -262,6 +300,12 @@ function _calcStatus(r, metodo, cfg, q1, q3, iqr, mat) {
   if (metodo === "sigma" && r.Z_SCORE != null) {
     if (Math.abs(r.Z_SCORE) >= cfg.extrema) return "EXTREMA";
     if (Math.abs(r.Z_SCORE) >= cfg.alta)    return "ALTA";
+  } else if (metodo === "sigma" && r.Z_SCORE == null && r.MAD_INDIVIDUAL > 0 && r.MEDIANA_BASELINE != null) {
+    // REDE PARA DESVIO ZERO: com histórico constante o sigma zera e ficava cego.
+    // Aplica MAD (Iglewicz-Hoaglin) como fallback para não perder o alerta.
+    const zMad = 0.6745 * (r.LIQUIDO_ALVO - r.MEDIANA_BASELINE) / r.MAD_INDIVIDUAL;
+    if (Math.abs(zMad) >= 3.5) return "EXTREMA";
+    if (Math.abs(zMad) >= 2.5) return "ALTA";
   } else if (metodo === "iqr" && r.VAR_ABS != null && iqr != null && iqr > 0) {
     if (r.VAR_ABS < q1 - cfg.extrema * iqr || r.VAR_ABS > q3 + cfg.extrema * iqr) return "EXTREMA_IQR";
     if (r.VAR_ABS < q1 - cfg.alta    * iqr || r.VAR_ABS > q3 + cfg.alta    * iqr) return "ALTA_IQR";
@@ -276,6 +320,15 @@ function _calcStatus(r, metodo, cfg, q1, q3, iqr, mat) {
     if (vp >= cfg.alta_pct    && va > cfg.alta_abs)    return "ALTA";
   }
   if (mat > 0 && r.VAR_ABS != null && Math.abs(r.VAR_ABS) >= mat) return "MATERIAL";
+  // REGRA UNIVERSAL DE QUEDA DE LÍQUIDO (independe do método e de desvio > 0).
+  // Pega o caso do desconto que derruba o líquido mesmo quando o histórico é
+  // constante e o valor é pequeno perto da folha inteira.
+  if (r.VAR_ABS != null && r.VAR_ABS < 0) {
+    const queda = -r.VAR_ABS;
+    const pctQueda = r.VAR_PCT != null ? -r.VAR_PCT : 0;
+    if (queda >= PARAMS_REVISAO.queda_liq_abs) return "QUEDA_LIQUIDO";
+    if (pctQueda >= PARAMS_REVISAO.queda_liq_pct && queda >= PARAMS_REVISAO.queda_liq_abs_min) return "QUEDA_LIQUIDO";
+  }
   if (r.Z_SCORE != null && Math.abs(r.Z_SCORE) >= 2) return "Z_2SIGMA";
   return "OK";
 }
@@ -295,8 +348,11 @@ function _calcAuditoria(r, mesAlvo, cfg) {
     return `Variação alta: ${fmtPct(r.VAR_PCT)} (${fmtBRL(r.VAR_ABS)}). Z=${r.Z_SCORE != null ? r.Z_SCORE.toFixed(2) : "-"}.`;
   if (s === "MATERIAL")
     return `Impacto material (>=${((cfg.materialidade_pct||0)*100).toFixed(1)}% da folha): ${fmtBRL(r.VAR_ABS)}.`;
+  if (s === "QUEDA_LIQUIDO")
+    return `Queda de líquido: ${fmtBRL(r.VAR_ABS)} (${fmtPct(r.VAR_PCT)}) vs habitual ${fmtBRL(r.MEDIA_BASELINE)}. Verificar descontos.`;
   if (s === "Z_2SIGMA")  return `Fora de 2 sigmas (z=${r.Z_SCORE != null ? r.Z_SCORE.toFixed(2) : "-"}).`;
   if (s === "NOVO_FUNC") return `Sem baseline; líquido ${fmtBRL(r.LIQUIDO_ALVO)}.`;
+  if (s === "SEM_HISTORICO") return `Sem histórico disponível (mês único). Líquido ${fmtBRL(r.LIQUIDO_ALVO)}.`;
   if (s === "SEM_DADOS") return "Sem movimento no período.";
   return "Sem desvio relevante.";
 }
@@ -364,4 +420,130 @@ function hcETotalPorVerba(df, meses, codigosVerba) {
     const total = ativos.reduce((s, r) => s + (r[col] || 0), 0);
     return { Mes: m, HC: hc, Total: total, Media: hc ? total / hc : 0 };
   });
+}
+
+// ============================================================
+// Descontos para revisar — análise POR RUBRICA (verba DESC),
+// não pelo líquido. É aqui que o desconto isolado (novo ou salto)
+// é detectado mesmo quando some no líquido ou é pequeno perto da
+// folha inteira. Inclui z* robusto (mediana/MAD) por verba para
+// agrupar "casos similares".
+// liqResult = array retornado por liquidoPorFuncionario (para o
+// líquido habitual de cada colaborador).
+// ============================================================
+function descontosParaRevisar(df, meses, mesAlvo, mesesBaseline, liqResult, cfg) {
+  cfg = cfg || PARAMS_REVISAO;
+  mesesBaseline = mesesBaseline || [];
+  const modoMesUnico = mesesBaseline.length === 0;
+  const colAlvo = `${mesAlvo} - Valor`;
+  const colsBase = mesesBaseline.map(m => `${m} - Valor`);
+  const sensiveis = new Set((cfg.sensiveis || []).map(normCod));
+
+  // Líquido habitual por colaborador (chave Empresa+Mat+Nome)
+  const liqPorKey = {};
+  for (const r of (liqResult || [])) {
+    const key = getEmpresa(r) + "|||" + getMatricula(r) + "|||" + getNome(r);
+    liqPorKey[key] = (r.MEDIA_BASELINE != null && r.MEDIA_BASELINE !== 0) ? r.MEDIA_BASELINE : (r.LIQUIDO_ALVO || 0);
+  }
+
+  // Agrega DESC por colaborador + verba
+  const agg = {};
+  for (const r of df) {
+    if ((r["Clas."] || "") !== "DESC") continue;
+    const key = funcKey(r) + "###" + normCod(r["Código"]);
+    if (!agg[key]) agg[key] = {
+      Empresa: getEmpresa(r), Matrícula: getMatricula(r), Nome: getNome(r),
+      Código: r["Código"], Descrição: r["Descrição"], funcKey: funcKey(r),
+      alvo: 0, base: {}
+    };
+    agg[key].alvo += (r[colAlvo] || 0);
+    for (const c of colsBase) agg[key].base[c] = (agg[key].base[c] || 0) + (r[c] || 0);
+  }
+
+  const eventos = [];
+  for (const d of Object.values(agg)) {
+    const valor = d.alvo;                       // valor do desconto no mês-alvo (>0)
+    if (Math.abs(valor) < 0.01) continue;       // sem desconto nessa verba
+    const baseVals = colsBase.map(c => d.base[c] || 0);
+    const ativos = baseVals.filter(v => Math.abs(v) >= 0.01);
+    const nBaseAtivos = ativos.length;
+    const refMed = ativos.length ? median(ativos) : 0;   // desconto habitual desta verba p/ este colab
+    const liqHab = Math.abs(liqPorKey[d.funcKey] || 0);
+    const comprometimento = liqHab > 0 ? (Math.abs(valor) / liqHab) * 100 : null;
+    const ehSensivel = sensiveis.has(normCod(d.Código));
+    const pisoNovo   = ehSensivel ? Math.min(cfg.piso_desc_novo, cfg.piso_desc_revisao) : cfg.piso_desc_novo;
+
+    let tipo = null, motivos = [], prioridade = null;
+
+    if (nBaseAtivos === 0 && !modoMesUnico) {
+      tipo = "NOVO";
+      if (Math.abs(valor) >= pisoNovo) motivos.push(`Desconto novo de ${fmtBRL(valor)} (não existia no histórico).`);
+    } else if (nBaseAtivos >= 1) {
+      const delta = Math.abs(valor) - Math.abs(refMed);
+      const pctSalto = refMed ? (Math.abs(valor) / Math.abs(refMed) - 1) * 100 : 0;
+      if (pctSalto >= cfg.salto_desc_pct && delta >= cfg.queda_liq_abs_min) {
+        tipo = "SALTO";
+        motivos.push(`Salto de ${fmtPct(pctSalto)} vs habitual ${fmtBRL(refMed)} (+${fmtBRL(delta)}).`);
+      }
+    }
+    if (modoMesUnico && Math.abs(valor) >= cfg.piso_desc_revisao) {
+      tipo = tipo || "VALOR";
+      motivos.push(`Desconto de ${fmtBRL(valor)} (sem histórico p/ comparar).`);
+    }
+
+    // Gatilhos independentes do tipo
+    if (Math.abs(valor) >= cfg.piso_desc_revisao) { prioridade = "Revisão obrigatória"; motivos.push(`Valor >= piso de revisão (${fmtBRL(cfg.piso_desc_revisao)}).`); }
+    if (ehSensivel && Math.abs(valor) >= pisoNovo) { prioridade = "Revisão obrigatória"; motivos.push("Verba marcada como sensível."); }
+    if (comprometimento != null && comprometimento >= cfg.comprometimento_pct) {
+      motivos.push(`Compromete ${comprometimento.toFixed(1)}% do líquido habitual.`);
+      prioridade = prioridade || "Alerta";
+    }
+
+    if (!motivos.length) continue;  // nada disparou -> não entra na revisão
+    prioridade = prioridade || "Alerta";
+    tipo = tipo || "VALOR";
+    eventos.push({
+      Empresa: d.Empresa, Matrícula: d.Matrícula, Nome: d.Nome,
+      Código: d.Código, Descrição: d.Descrição, funcKey: d.funcKey,
+      VALOR: valor, REFERENCIA: refMed, TIPO: tipo, PRIORIDADE: prioridade,
+      COMPROMETIMENTO: comprometimento, MOTIVO: motivos.join(" "),
+      Z_VERBA: null, SIMILARES: 0
+    });
+  }
+
+  // Estatística por verba (mediana/MAD) sobre TODOS os descontos daquela verba
+  // no mês-alvo (não só os já sinalizados) => quem é outlier entre os pares.
+  const porVerba = {};
+  for (const d of Object.values(agg)) {
+    if (Math.abs(d.alvo) < 0.01) continue;
+    const cod = normCod(d.Código);
+    (porVerba[cod] = porVerba[cod] || []).push(Math.abs(d.alvo));
+  }
+  const statVerba = {};
+  for (const [cod, vals] of Object.entries(porVerba)) {
+    const med = median(vals);
+    const mad = calcMAD(vals);
+    statVerba[cod] = { med, mad, n: vals.length };
+  }
+  for (const ev of eventos) {
+    const st = statVerba[normCod(ev.Código)];
+    if (st && st.mad && st.mad > 0) {
+      ev.Z_VERBA = 0.6745 * (Math.abs(ev.VALOR) - st.med) / st.mad;
+      ev.SIMILARES = Math.max(0, st.n - 1);
+      if (Math.abs(ev.Z_VERBA) >= cfg.mad_z_verba && ev.PRIORIDADE === "Alerta") {
+        ev.MOTIVO += ` Fora do padrão da verba (z*=${ev.Z_VERBA.toFixed(1)}).`;
+      }
+    }
+  }
+
+  // Ordena: revisão obrigatória primeiro, depois por comprometimento e valor
+  eventos.sort((a, b) => {
+    const pa = a.PRIORIDADE === "Revisão obrigatória" ? 0 : 1;
+    const pb = b.PRIORIDADE === "Revisão obrigatória" ? 0 : 1;
+    if (pa !== pb) return pa - pb;
+    const ca = a.COMPROMETIMENTO || 0, cb = b.COMPROMETIMENTO || 0;
+    if (cb !== ca) return cb - ca;
+    return Math.abs(b.VALOR) - Math.abs(a.VALOR);
+  });
+  return eventos;
 }

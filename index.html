@@ -133,6 +133,31 @@
         <div class="metric-card" id="card9950"></div>
       </div>
       <div class="aviso-row" id="avisoDesligados"></div>
+
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <span>Descontos para revisar</span>
+        <span class="filtros-row" style="gap:6px;margin:0">
+          <label style="font-size:12px">Colaborador / matrícula:</label>
+          <input type="text" id="vgBusca" placeholder="nome, matrícula ou verba" class="input-ctrl-sm" style="width:220px">
+          <button class="btn-secondary" id="vgBuscaLimpar" style="padding:3px 10px">Limpar</button>
+        </span>
+      </div>
+      <div id="painelDescontos">
+        <div class="desc-kpis" id="descKpis"></div>
+        <div class="hint-text" style="font-size:11px;margin:10px 0 4px">Dispersão — valor do desconto × comprometimento do líquido habitual. Pontos vinho estão fora do padrão e entram na revisão.</div>
+        <div class="chart-container" style="height:280px"><canvas id="chartDescontos"></canvas></div>
+        <div class="hint-text" style="font-size:11px;margin:10px 0 4px"><span id="descCount"></span> — clique numa linha para abrir o holerite do colaborador.</div>
+        <div class="table-wrap" style="max-height:320px">
+          <table class="data-table" id="tabelaDescontos">
+            <thead><tr>
+              <th data-sk="Empresa">Empresa</th><th data-sk="Matrícula">Matrícula</th><th data-sk="Nome">Nome</th><th data-sk="Código">Verba</th>
+              <th data-sk="VALOR">Valor</th><th data-sk="REFERENCIA">Referência</th><th data-sk="COMPROMETIMENTO">Impacto %</th><th data-sk="PRIORIDADE">Prioridade</th><th data-sk="MOTIVO">Motivo</th>
+            </tr></thead>
+            <tbody id="descBody"></tbody>
+          </table>
+        </div>
+      </div>
+
       <div class="section-title">Evolução mensal — PGTO, DESC e Líquido</div>
       <div class="chart-container" style="height:380px"><canvas id="chartEvolucao"></canvas></div>
       <div class="two-col">
