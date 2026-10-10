@@ -23,7 +23,7 @@ const APP = (() => {
     // análise de verbas
     verbasAvCompleta: null, dfAvBase: null,
     codigosColabAtual: [], colabDfAtual: null,
-    topVerbasDF: null,
+    topVerbasDF: null, sumLiquids: new Map(),
     // tabela
     funcSelecionado: null,
     sortCol: "VAR_ABS", sortAsc: false,
@@ -37,6 +37,19 @@ const APP = (() => {
     // ordenação por clique (asc/desc) das tabelas
     confSort: { key: null, dir: 1 }, drillSort: { key: null, dir: 1 }, colabSort: { key: null, dir: 1 }, descSort: { key: null, dir: 1 }
   };
+
+  function _sumEmployeeId(r) { return JSON.stringify([funcKey(r), S.mesAlvo]); }
+  function _sumPayroll(row) {
+    return RowSelection.payroll(row[`${S.mesAlvo} - Valor`] || 0, row["Clas."], row["Código"], row["Descrição"], _isLiqRow(row));
+  }
+  function _sumLiquid(r) {
+    return { ["Líquido calculado · " + S.mesAlvo]: S.sumLiquids.get(funcKey(r)) || 0n };
+  }
+  function _sumView(name, rows, options) {
+    const view = RowSelection.table(name);
+    const page = view.prepare(rows, Object.assign({ key: _sumEmployeeId, label: S.mesAlvo, emptyGroup: 'Líquido calculado · ' + S.mesAlvo, values: _sumLiquid }, options));
+    return { view, page };
+  }
 
   // ---- Init ----
   function init() {
@@ -78,7 +91,7 @@ const APP = (() => {
     const bR2 = document.getElementById("btnConfReset2"); if (bR2) bR2.addEventListener("click", confReset);
     const bMV = document.getElementById("btnConfMarcarVisiveis"); if (bMV) bMV.addEventListener("click", _confMarcarVisiveis);
     const hSel = document.getElementById("holFunc");
-    if (hSel) hSel.addEventListener("change", e => { const [m, n] = e.target.value.split("|||"); HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false; _renderHolerite(); });
+    if (hSel) hSel.addEventListener("change", e => { const [emp, m, n] = JSON.parse(e.target.value); HOL.empresa = emp; HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false; _renderHolerite(); });
     const hBC = document.getElementById("holBuscaColab");
     if (hBC) hBC.addEventListener("input", e => { HOL.buscaColab = e.target.value; HOL.q = ""; HOL.onlyChk = false; _renderHolerite(); });
     const hPrev = document.getElementById("holPrev"); if (hPrev) hPrev.addEventListener("click", () => _holNav(-1));
@@ -107,16 +120,7 @@ const APP = (() => {
     if (vgB) vgB.addEventListener("input", e => { S.vgBusca = e.target.value; if (S.descontosRevisar) _renderPainelDescontos(); });
     const vgBL = document.getElementById("vgBuscaLimpar");
     if (vgBL) vgBL.addEventListener("click", () => { S.vgBusca = ""; const i = document.getElementById("vgBusca"); if (i) i.value = ""; if (S.descontosRevisar) _renderPainelDescontos(); });
-    const pd = document.getElementById("painelDescontos");
-    if (pd && pd.dataset.b !== "1") {
-      pd.dataset.b = "1";
-      pd.addEventListener("click", e => {
-        const tr = e.target.closest(".desc-row"); if (!tr) return;
-        const fk = tr.dataset.funckey;
-        const ev = (S.descontosRevisar || []).find(x => x.funcKey === fk);
-        if (ev) _abrirHolerite(ev.Matrícula, ev.Nome);
-      });
-    }
+
   }
 
   function _popularComboMetodo() {
@@ -153,6 +157,8 @@ const APP = (() => {
         const csvText = ev.target.result;
         const { df, meses } = carregarCSV(csvText);
         if (!df.length || !meses.length) { alert("Arquivo sem dados reconhecíveis. Verifique o formato CSV (separador ; e valores com vírgula decimal)."); return; }
+        RowSelection.newDataset();
+        df.forEach(RowSelection.sourceId);
         S.df = df; S.mesesDetectados = meses;
         S.csvBruto = csvText; S.csvNome = file.name;
         _salvarNoStorage(csvText, file.name);
@@ -192,7 +198,9 @@ const APP = (() => {
     try {
       const { df, meses } = carregarCSV(csvText);
       if (!df.length || !meses.length) { localStorage.removeItem("af_csv"); return; }
-      S.df = df; S.mesesDetectados = meses; S.csvBruto = csvText; S.csvNome = fname;
+      RowSelection.newDataset();
+        df.forEach(RowSelection.sourceId);
+        S.df = df; S.mesesDetectados = meses; S.csvBruto = csvText; S.csvNome = fname;
       document.getElementById("fileName").textContent = fname || "(cache)";
       _atualizarCache(`Em cache: ${fname || "arquivo anterior"}`);
       _carregarEmpresas(); _carregarProcessos();
@@ -413,7 +421,8 @@ const APP = (() => {
         return Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0);
       });
     }
-    list.slice(0, 2000).forEach(r => {
+    const sum = _sumView('conferencia', list, {render: _renderConferencia, investigate: r => _navigateToFuncDrill(r.Matrícula, r.Nome, r.Empresa)});
+    sum.page.forEach(r => {
       const key = _confKey(r); const c = _confGet(key);
       const nLin = c.linhas ? Object.keys(c.linhas).length : 0;
       const tr = document.createElement("tr");
@@ -429,12 +438,13 @@ const APP = (() => {
         <td class="num">${fmtBRL(r.VAR_ABS)}</td>
         <td class="center">${nLin || ""}</td>
         <td><input type="text" class="conf-obs-inp" data-confkey="${escAttr(key)}" value="${escAttr(c.obs || "")}" placeholder="observação..."></td>
-        <td class="center"><button class="btn-xs conf-open" data-mat="${escAttr(r.Matrícula)}" data-nome="${escAttr(r.Nome)}">Abrir</button></td>`;
-      tbody.appendChild(tr);
+        <td class="center"><button class="btn-xs conf-open" data-empresa="${escAttr(r.Empresa)}" data-mat="${escAttr(r.Matrícula)}" data-nome="${escAttr(r.Nome)}">Abrir</button></td>`;
+      sum.view.bind(tr, r); tbody.appendChild(tr);
     });
+    sum.view.finish(document.getElementById("tabelaConf"));
     _bindConfTab();
     _bindSort("#tabelaConf", S.confSort, _renderConferencia);
-    document.getElementById("countConf").textContent = `${Math.min(2000, list.length)} de ${list.length} colaboradores`;
+    document.getElementById("countConf").textContent = `${sum.page.length} de ${list.length} colaboradores`;
     _atualizarConfContador();
   }
   function _confValSort(r, key) {
@@ -460,7 +470,7 @@ const APP = (() => {
       _confSetFunc(cell.dataset.confkey, chk.checked);
       _renderizarTabela(); _repintarColabConf();
       if (S.funcSelecionado && _confKey(S.funcSelecionado) === cell.dataset.confkey) _renderConfBox(S.funcSelecionado);
-      const tr = chk.closest("tr"); if (tr) tr.className = chk.checked ? "conf-row-ok" : "";
+      const tr = chk.closest("tr"); if (tr) tr.classList.toggle("conf-row-ok", chk.checked);
       const f = document.getElementById("comboConfFiltro2").value;
       if (f === "pendentes" || f === "conferidos") _renderConferencia();
     });
@@ -471,7 +481,7 @@ const APP = (() => {
     });
     tb.addEventListener("click", e => {
       const btn = e.target.closest(".conf-open"); if (!btn) return;
-      _navigateToFuncDrill(btn.dataset.mat, btn.dataset.nome);
+      _navigateToFuncDrill(btn.dataset.mat, btn.dataset.nome, btn.dataset.empresa);
     });
   }
   function _confMarcarVisiveis() {
@@ -485,7 +495,7 @@ const APP = (() => {
   // ============================================================
   // ---- Holerite (recibo do colaborador) — aba secundária -----
   // ============================================================
-  let HOL = { mat: null, nome: null, q: "", onlyChk: false, buscaColab: "", sort: { key: null, dir: 1 },
+  let HOL = { empresa: null, mat: null, nome: null, q: "", onlyChk: false, buscaColab: "", sort: { key: null, dir: 1 },
     clas: { pgto: true, desc: true, prov: true, outro: true, base: true, encar: true } };
 
   // Ordenação genérica por clique no cabeçalho (asc/desc)
@@ -571,7 +581,7 @@ const APP = (() => {
   // Linhas do holerite para o colaborador atual
   function _holLines() {
     if (!HOL.mat || !S.dfFiltrado) return [];
-    const rows = S.dfFiltrado.filter(row => getMatricula(row) === HOL.mat && getNome(row) === HOL.nome);
+    const rows = S.dfFiltrado.filter(row => getMatricula(row) === HOL.mat && getNome(row) === HOL.nome && getEmpresa(row) === HOL.empresa);
     return rows.map(row => ({
       codigo: row["Código"], descricao: row["Descrição"], clas: row["Clas."],
       cr: row["C.R."], processo: row["Processo"], row,
@@ -609,24 +619,29 @@ const APP = (() => {
     const q = (HOL.buscaColab || "").toLowerCase().trim();
     let pop = (S.liquidoAnalise || []).slice().sort((a, b) => String(a.Nome).localeCompare(String(b.Nome)));
     if (q) pop = pop.filter(r => String(r.Nome).toLowerCase().includes(q) || String(r.Matrícula).toLowerCase().includes(q));
-    sel.innerHTML = pop.map(r => `<option value="${escAttr(r.Matrícula + "|||" + r.Nome)}">${escAttr(maskMat(r.Matrícula))} — ${escAttr(String(maskNome(r.Nome, r.Matrícula)).substring(0,45))} (${r.STATUS})</option>`).join("");
+    sel.innerHTML = pop.map(r => `<option value="${escAttr(JSON.stringify([r.Empresa, r.Matrícula, r.Nome]))}">${escAttr(maskMat(r.Matrícula))} — ${escAttr(String(maskNome(r.Nome, r.Matrícula)).substring(0,45))} (${r.STATUS})</option>`).join("");
     const cont = document.getElementById("holCount");
     if (cont) cont.textContent = q ? `${pop.length} colaborador(es) encontrado(s)` : "";
     if (!pop.length) { HOL.mat = null; HOL.nome = null; return; }
-    const cur = HOL.mat ? (HOL.mat + "|||" + HOL.nome) : null;
-    const has = cur && pop.some(r => (r.Matrícula + "|||" + r.Nome) === cur);
+    const cur = HOL.mat ? JSON.stringify([HOL.empresa, HOL.mat, HOL.nome]) : null;
+    const has = cur && pop.some(r => (JSON.stringify([r.Empresa, r.Matrícula, r.Nome])) === cur);
     let alvo = has ? cur
       : (!q && S.funcSelecionado && pop.some(r => r.Matrícula === S.funcSelecionado.Matrícula && r.Nome === S.funcSelecionado.Nome)
-          ? (S.funcSelecionado.Matrícula + "|||" + S.funcSelecionado.Nome)
-          : (pop[0].Matrícula + "|||" + pop[0].Nome));
-    sel.value = alvo; const [m, n] = alvo.split("|||"); HOL.mat = m; HOL.nome = n;
+          ? JSON.stringify([S.funcSelecionado.Empresa, S.funcSelecionado.Matrícula, S.funcSelecionado.Nome])
+          : JSON.stringify([pop[0].Empresa, pop[0].Matrícula, pop[0].Nome]));
+    sel.value = alvo; const [emp, m, n] = JSON.parse(alvo); HOL.empresa = emp; HOL.mat = m; HOL.nome = n;
   }
   function _renderHolerite() {
     const cont = document.getElementById("holContent"); if (!cont) return;
     if (!S.liquido) { cont.innerHTML = `<div class="hint-text">Carregue um arquivo e processe para ver o holerite.</div>`; return; }
     _popularHolFunc();
-    if (!HOL.mat) { cont.innerHTML = `<div class="hint-text">Selecione um colaborador.</div>`; return; }
-    const fr = (S.liquido || []).find(r => r.Matrícula === HOL.mat && r.Nome === HOL.nome) || {};
+    if (!HOL.mat) {
+      const v = RowSelection.table('holerite'); v.prepare([], { key: l => RowSelection.sourceId(l), values: () => ({}), render: _renderHolerite });
+      const notice = v.message; cont.innerHTML = `<div class="hint-text">Selecione um colaborador.</div>`;
+      if (notice) { const el = document.createElement('div'); el.setAttribute('role', 'status'); el.textContent = notice; cont.appendChild(el); }
+      return;
+    }
+    const fr = (S.liquido || []).find(r => r.Matrícula === HOL.mat && r.Nome === HOL.nome && r.Empresa === HOL.empresa) || {};
     let lines = _holLines();
     const totalLines = lines.length;
     // ordena: líquido primeiro, depois por classificação
@@ -670,7 +685,11 @@ const APP = (() => {
       <th class="hol-sel" data-sk="calc">Calc.</th><th data-sk="cod">Cód.</th><th data-sk="desc">Descrição</th><th class="c" data-sk="clas">Clas.</th>
       ${months.map(m => `<th class="r ${m === S.mesAlvo ? "hol-alvo" : ""}" data-sk="m:${m}">${m}</th>`).join("")}
       <th class="c hol-sparkhead" data-sk="trend">Tendência</th></tr>`;
-    const body = visiveis.map(l => {
+    const sum = _sumView('holerite', visiveis, {
+      key: l => JSON.stringify([RowSelection.sourceId(l.row), S.mesAlvo]), values: l => _sumPayroll(l.row), emptyGroup: 'Folha (proventos − descontos)',
+      render: _holReRender, investigate: l => RowSelection.openDetail('Lançamento de folha · ' + S.mesAlvo, l.row)
+    });
+    const body = sum.page.map(l => {
       const seq = months.map(m => l.per[m] || 0);
       const kind = _clasKind(l.clas);
       const checked = _holLineChecked(l);
@@ -707,18 +726,21 @@ const APP = (() => {
       </div>
       <div class="calc-box">
         <div class="calc-card"><div class="l">Líquido localizado</div><div class="v">${liq.found ? fmtBRL(liq.value) : "-"}</div></div>
-        <div class="calc-card"><div class="l">Créditos selecionados</div><div class="v">${fmtBRL(c.creditos + c.outros)}</div></div>
-        <div class="calc-card"><div class="l">Descontos selecionados</div><div class="v">${fmtBRL(c.descontos)}</div></div>
+        <div class="calc-card"><div class="l">Créditos marcados (Calc.)</div><div class="v">${fmtBRL(c.creditos + c.outros)}</div></div>
+        <div class="calc-card"><div class="l">Descontos marcados (Calc.)</div><div class="v">${fmtBRL(c.descontos)}</div></div>
         <div class="calc-card ${cls}"><div class="l">Resultado</div><div class="v">${fmtBRL(c.calculado)}</div></div>
         <div class="calc-card ${cls}"><div class="l">Diferença</div><div class="v">${liq.found && c.count > 0 ? fmtBRL(dif) : "-"}</div></div>
         <div class="calc-note"><b>${status}</b><br>Marque na coluna <b>Calc.</b> as linhas que devem compor a conta. Regra: PGTO/PROV/OUTRO somam; DESC subtrai; a linha Líquido é só referência.</div>
       </div>
-      <div class="hol-linecount">Linhas selecionadas para cálculo: <b>${okN}</b> de <b>${calcEff}</b> (${calcEff ? Math.round(okN / calcEff * 100) : 0}%).${hiddenN > 0 ? ` · <b>${hiddenN}</b> verba(s) ocultada(s) pelos filtros — a verba Líquido permanece sempre visível.` : ""}</div>
+      <div class="hol-linecount">Linhas marcadas em Calc. (conferência): <b>${okN}</b> de <b>${calcEff}</b> (${calcEff ? Math.round(okN / calcEff * 100) : 0}%).${hiddenN > 0 ? ` · <b>${hiddenN}</b> verba(s) ocultada(s) pelos filtros — a verba Líquido permanece sempre visível.` : ""}</div>
       <div class="hol-legend"><b>${months.length}</b> meses na tela (base <b>${S.mesAlvo}</b>). <span class="ml"><i class="l-not"></i> ≥ 30%</span> <span class="ml"><i class="l-ext"></i> ≥ 98% ou zerada</span> <span class="ml"><i class="l-new"></i> verba nova</span> <span class="ml"><span class="l-trend"></span> reta de tendência</span> <span class="ml"><i class="l-out"></i> fora da tendência</span></div>
       <div class="table-wrap hol-scroll" id="holScroll" style="max-height:460px">
         <table class="data-table hol-table"><thead>${head}</thead><tbody id="holBody">${body}</tbody></table>
       </div>`;
     _bindHolInner();
+    const table = document.querySelector('#holContent .hol-table');
+    [...table.tBodies[0].rows].forEach((tr, i) => sum.view.bind(tr, sum.page[i]));
+    sum.view.finish(table);
   }
   function _holValSort(l, key) {
     if (key === "calc") return _holLineChecked(l) ? 1 : 0;
@@ -765,10 +787,11 @@ const APP = (() => {
     let i = sel.selectedIndex + delta;
     i = Math.max(0, Math.min(sel.options.length - 1, i));
     sel.selectedIndex = i;
-    const [m, n] = sel.value.split("|||"); HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false;
+    const [emp, m, n] = JSON.parse(sel.value); HOL.empresa = emp; HOL.mat = m; HOL.nome = n; HOL.q = ""; HOL.onlyChk = false;
     _renderHolerite();
   }
-  function _verHolerite(mat, nome) {
+  function _verHolerite(mat, nome, empresa) {
+    HOL.empresa = empresa || S.funcSelecionado?.Empresa || (S.liquido || []).find(r => r.Matrícula === mat && r.Nome === nome)?.Empresa;
     HOL.mat = mat; HOL.nome = nome; HOL.q = ""; HOL.onlyChk = false; HOL.buscaColab = "";
     const hb = document.getElementById("holBuscaColab"); if (hb) hb.value = "";
     _switchTab("holerite");
@@ -874,7 +897,7 @@ const APP = (() => {
   // ---- Reprocessar ----
   function acaoReprocessar() {
     if (!S.df) return;
-    if (!S.empresasSel.length) { alert("Selecione ao menos uma empresa."); return; }
+
     // Modo mês único: se só há um mês no arquivo, segue sem baseline (sem comparativos).
     // Se há vários meses mas o usuário desmarcou todos, aí sim é erro do usuário.
     const modoMesUnico = !S.mesesBaseline.length;
@@ -886,7 +909,7 @@ const APP = (() => {
 
     let dfF = S.df.filter(r => S.empresasSel.includes((r["Empresa"] || "").trim()));
     if (S.processosDisp.length > 1) dfF = dfF.filter(r => S.processosSel.includes((r["Processo"] || "").trim()));
-    if (!dfF.length) { alert("Nenhuma linha após os filtros de empresa/processo."); return; }
+
 
     if (S.verbasExcluidas.size > 0) {
       const exclNorm = new Set([...S.verbasExcluidas].map(normCod));
@@ -894,6 +917,12 @@ const APP = (() => {
       dfF = dfF.filter(r => !exclNorm.has(normCod(r["Código"])));
     }
     S.dfFiltrado = dfF;
+    S.sumLiquids = new Map();
+    for (const row of dfF) {
+      if (_isLiqRow(row) || !['PGTO','DESC'].includes(row['Clas.'])) continue;
+      const n = _sumPayroll(row)['Folha (proventos − descontos)'] || 0n;
+      S.sumLiquids.set(funcKey(row), (S.sumLiquids.get(funcKey(row)) || 0n) + n);
+    }
 
     // ---- Constrói mapa de anonimização (mat → {mat anon, nome anon}) ----
     const matsOrdenadas = [...new Set(S.df.map(getMatricula))].sort();
@@ -941,13 +970,22 @@ const APP = (() => {
     _bindSortHeaders();
     _renderizarTabela();
     _renderConferencia();
-    HOL.mat = null; HOL.nome = null; HOL.buscaColab = "";
-    const hb = document.getElementById("holBuscaColab"); if (hb) hb.value = "";
-    _popularHolFunc();
-    const tabAtiva2 = document.querySelector(".tab-btn.active")?.dataset.tab;
-    if (tabAtiva2 === "holerite") _renderHolerite();
-    S.funcSelecionado = null;
-    document.getElementById("drillInfo").textContent = "(selecione um funcionário na tabela acima)";
+    _renderHolerite();
+    if (S.funcSelecionado) {
+      S.funcSelecionado = S.liquidoAnalise.find(r => funcKey(r) === funcKey(S.funcSelecionado)) || null;
+    }
+    if (S.funcSelecionado) _renderizarDrillVerbas();
+    else {
+      document.getElementById('drillBody').replaceChildren();
+      const empty = _sumView('verbas-detalhe', [], {values: _sumPayroll, render: _renderizarDrillVerbas, key: row => RowSelection.sourceId(row)});
+      empty.view.finish(document.getElementById('tabelaDrill'));
+      document.getElementById('drillInfo').textContent = '(duplo clique em um funcionário na tabela acima)';
+    }
+    let av = S.df.filter(r => S.empresasSel.includes(getEmpresa(r)));
+    if (S.processosDisp.length > 1) av = av.filter(r => S.processosSel.includes((r['Processo'] || '').trim()));
+    S.dfAvBase = av;
+    if (S.colabDfAtual) _popularTabelaColab(S.codigosColabAtual);
+
   }
 
   // ---- Helpers de anonimização ----
@@ -1025,15 +1063,20 @@ const APP = (() => {
     // Tabela sem cores (Empresa | Matrícula | Nome | Verba | Valor | Referência | Impacto % | Prioridade | Motivo)
     const body = document.getElementById("descBody");
     if (!body) return;
+    const sum = _sumView('descontos', lista, {
+      key: e => JSON.stringify([e.funcKey, normCod(e.Código), S.mesAlvo]),
+      values: e => RowSelection.payroll(e.VALOR, 'DESC', e.Código, e.Descrição), emptyGroup: 'Folha (proventos − descontos)',
+      render: _renderPainelDescontos, investigate: e => _verHolerite(e.Matrícula, e.Nome, e.Empresa)
+    });
     if (!lista.length) {
       body.innerHTML = `<tr><td colspan="9" class="hint-text" style="text-align:center;padding:14px">${
         todos.length ? "Nenhum desconto para o filtro atual." : "Nenhum desconto sinalizado para revisão neste mês."}</td></tr>`;
     } else {
-      body.innerHTML = lista.slice(0, 500).map(e => {
+      body.innerHTML = sum.page.map(e => {
         const nome = maskNome(e.Nome, e.Matrícula), mat = maskMat(e.Matrícula);
         const comp = e.COMPROMETIMENTO != null ? `${e.COMPROMETIMENTO.toFixed(1)}%` : "-";
         const prioCls = e.PRIORIDADE === "Revisão obrigatória" ? "prio-obrig" : "prio-alerta";
-        return `<tr data-funckey="${escAttr(e.funcKey)}" class="desc-row" title="Abrir holerite">
+        return `<tr data-funckey="${escAttr(e.funcKey)}" class="desc-row" title="Duplo clique abre o holerite">
           <td>${escHtml(e.Empresa)}</td>
           <td class="center">${escHtml(mat)}</td>
           <td>${escHtml(nome)}</td>
@@ -1046,8 +1089,10 @@ const APP = (() => {
         </tr>`;
       }).join("");
     }
+    if (sum.page.length) [...body.rows].forEach((tr, i) => sum.view.bind(tr, sum.page[i]));
+    sum.view.finish(document.getElementById('tabelaDescontos'));
     document.getElementById("descCount").textContent =
-      `${lista.length} de ${todos.length} desconto(s)` + (lista.length > 500 ? " (500 exibidos)" : "");
+      `${lista.length} de ${todos.length} desconto(s)` + ` (${sum.page.length} exibidos)`;
     _bindSort("#tabelaDescontos", S.descSort, _renderPainelDescontos);
   }
 
@@ -1103,29 +1148,14 @@ const APP = (() => {
   }
 
   // ---- Navegação: scatter → Tabela & Drill-down ----
-  function _navigateToFuncDrill(mat, nome) {
+  function _navigateToFuncDrill(mat, nome, empresa) {
     _switchTab("tabela");
-    const r = (S.liquido || []).find(x => x.Matrícula === mat && x.Nome === nome);
+    const r = (S.liquidoAnalise || []).find(x => x.Matrícula === mat && x.Nome === nome && (!empresa || x.Empresa === empresa));
     if (!r) return;
-    // Limpa filtros para garantir que o funcionário apareça
-    document.getElementById("comboStatusTab").value = "(todos)";
-    const cc = document.getElementById("comboConfTab"); if (cc) cc.value = "todos";
-    document.getElementById("entryBusca").value = String(mat);
-    S.sortCol = "VAR_ABS"; S.sortAsc = false;
-    _renderizarTabela();
-    requestAnimationFrame(() => {
-      const rows = document.querySelectorAll("#tabelaBody tr");
-      for (const tr of rows) {
-        const tdMat = tr.querySelector("td.center");
-        if (tdMat && tdMat.textContent.trim() === String(mat)) {
-          document.querySelectorAll("#tabelaBody tr").forEach(t => t.classList.remove("selected"));
-          tr.classList.add("selected");
-          tr.scrollIntoView({ behavior: "smooth", block: "center" });
-          _renderDrill(r);
-          break;
-        }
-      }
-    });
+    S.funcSelecionado = r;
+    _renderDrill(r);
+    document.getElementById('drillInfo')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+
   }
 
   // ---- Drill colaborador na aba Análise de Verbas ----
@@ -1141,7 +1171,7 @@ const APP = (() => {
     const alvo = new Set(cods.map(normCod));
     const sub  = S.dfAvBase.filter(row =>
       alvo.has(normCod(row["Código"])) &&
-      getMatricula(row) === r.Matrícula && getNome(row) === r.Nome
+      funcKey(row) === funcKey(r)
     );
 
     const serie = { STATUS: r.STATUS_LIQ };
@@ -1167,7 +1197,7 @@ const APP = (() => {
       btn.style.cssText = "margin-left:14px;padding:2px 10px;font-size:11px;display:inline-block;width:auto";
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        _navigateToFuncDrill(r.Matrícula, r.Nome);
+        _navigateToFuncDrill(r.Matrícula, r.Nome, r.Empresa);
       });
       infoEl.appendChild(txt);
       infoEl.appendChild(btn);
@@ -1202,7 +1232,8 @@ const APP = (() => {
     });
     _filtrarListboxVerbas();
     const lb = document.getElementById("listboxVerbas");
-    if (lb.options.length > 0 && lb.selectedIndex < 0) { lb.selectedIndex = 0; _renderDrillVerba(); }
+    if (lb.options.length > 0 && lb.selectedIndex < 0) lb.selectedIndex = 0;
+    _renderDrillVerba();
   }
 
   function _filtrarListboxVerbas() {
@@ -1245,7 +1276,7 @@ const APP = (() => {
     if (!S.dfAvBase) return;
     const cods = _extrairCodsListbox();
     const infoEl = document.getElementById("verbasInfo");
-    if (!cods.length) { infoEl.textContent = "(nenhuma selecionada)"; _limparCardsAV(); return; }
+    if (!cods.length) { infoEl.textContent = "(nenhuma selecionada)"; _limparCardsAV(); _popularTabelaColab([]); return; }
     infoEl.textContent = `${cods.length} verba(s):\n${cods.slice(0,8).join("\n")}${cods.length>8 ? `\n...+${cods.length-8}` : ""}`;
     const dados = hcETotalPorVerba(S.dfAvBase, S.mesesDetectados, cods);
     const la = dados.find(d => d.Mes === S.mesAlvo);
@@ -1277,13 +1308,14 @@ const APP = (() => {
   // ---- Tabela colaboradores ----
   function _popularTabelaColab(cods) {
     S.codigosColabAtual = cods;
-    if (!cods.length) { S.colabDfAtual = null; document.getElementById("colabBody").innerHTML = ""; document.getElementById("countColab").textContent = ""; return; }
+    if (!cods.length) { S.colabDfAtual = []; _renderizarTabelaColab(); return; }
     const alvo = new Set(cods.map(normCod));
     const sub = S.dfAvBase.filter(r => alvo.has(normCod(r["Código"])));
     const funcMap = {};
     for (const r of sub) {
-      const key = getMatricula(r) + "|||" + getNome(r);
-      if (!funcMap[key]) funcMap[key] = { mat: getMatricula(r), nome: getNome(r), vAlvo: 0, totalPorMes: {} };
+      const key = funcKey(r);
+      if (!funcMap[key]) funcMap[key] = { empresa: getEmpresa(r), mat: getMatricula(r), nome: getNome(r), vAlvo: 0, totalPorMes: {}, source: [] };
+      funcMap[key].source.push(r);
       funcMap[key].vAlvo += (r[`${S.mesAlvo} - Valor`] || 0);
       // Agrega por mês (soma todas as verbas selecionadas do funcionário no mês)
       for (const m of S.mesesBaseline) {
@@ -1297,8 +1329,8 @@ const APP = (() => {
       const mediaVerba = nonZeroBase.length ? mean(nonZeroBase) : null;
       const varAbs = mediaVerba != null ? d.vAlvo - mediaVerba : null;
       const varPct = mediaVerba ? ((d.vAlvo / mediaVerba) - 1) * 100 : null;
-      const liqRow = S.liquido ? S.liquido.find(r => r.Matrícula === d.mat && r.Nome === d.nome) : null;
-      colab.push({ Matrícula: d.mat, Nome: d.nome, STATUS_LIQ: liqRow?.STATUS || "-",
+      const liqRow = S.liquido ? S.liquido.find(r => r.Matrícula === d.mat && r.Nome === d.nome && r.Empresa === d.empresa) : null;
+      colab.push({ Empresa: d.empresa, source: d.source, Matrícula: d.mat, Nome: d.nome, STATUS_LIQ: liqRow?.STATUS || "-",
         VALOR_ALVO: d.vAlvo, MEDIA_VERBA: mediaVerba, VAR_ABS: varAbs, VAR_PCT: varPct,
         LIQUIDO_ALVO: liqRow?.LIQUIDO_ALVO, AUDITORIA: liqRow?.AUDITORIA || "" });
     }
@@ -1337,7 +1369,14 @@ const APP = (() => {
     if (S.colabSort.key) df.sort(_genCmp(_colabValSort, S.colabSort.key, S.colabSort.dir));
     else df.sort((a, b) => Math.abs(b.VAR_ABS || 0) - Math.abs(a.VAR_ABS || 0));
     const tbody = document.getElementById("colabBody"); tbody.innerHTML = "";
-    df.slice(0,2000).forEach(r => {
+    const sum = _sumView('colaboradores-verbas', df, {
+      key: r => JSON.stringify([funcKey(r), S.mesAlvo, [...S.codigosColabAtual].sort()]),
+      values: r => RowSelection.combine(r.source.map(_sumPayroll)), emptyGroup: 'Folha (proventos − descontos)', label: 'Composição das verbas · ' + S.mesAlvo,
+      render: _renderizarTabelaColab, investigate: r => {
+        _renderColabDrill(r); document.getElementById('colabDrillInfo')?.scrollIntoView({behavior:'smooth', block:'nearest'});
+      }
+    });
+    sum.page.forEach(r => {
       const tr = document.createElement("tr");
       if (STATUS_CRITICOS.has(r.STATUS_LIQ)) tr.className = "critico";
       const dNome = maskNome(r.Nome, r.Matrícula);
@@ -1349,17 +1388,13 @@ const APP = (() => {
         <td class="num">${fmtBRL(r.LIQUIDO_ALVO)}</td><td>${String(r.AUDITORIA).substring(0,100)}</td>
         ${_confCellFunc(r)}`;
       tr.style.cursor = "pointer";
-      tr.addEventListener("click", () => {
-        document.querySelectorAll("#colabBody tr").forEach(t => t.classList.remove("selected"));
-        tr.classList.add("selected");
-        _renderColabDrill(r);
-        document.getElementById("colabDrillInfo")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-      });
+      sum.view.bind(tr, r);
       tbody.appendChild(tr);
     });
+    sum.view.finish(document.getElementById("tabelaColab"));
     _bindConfDelegation("colabBody");
     _bindSort("#tabelaColab", S.colabSort, _renderizarTabelaColab);
-    document.getElementById("countColab").textContent = `${Math.min(2000,df.length)} de ${df.length} linhas`;
+    document.getElementById("countColab").textContent = `${sum.page.length} de ${df.length} linhas`;
   }
 
   // ---- Tabela principal ----
@@ -1456,7 +1491,8 @@ const APP = (() => {
     });
 
     const tbody = document.getElementById("tabelaBody"); tbody.innerHTML = "";
-    tab.slice(0,1000).forEach(r => {
+    const sum = _sumView('principal', tab, {render: _renderizarTabela, investigate: (r, tr) => _selecionarFunc(r, tr)});
+    sum.page.forEach(r => {
       const tr = document.createElement("tr");
       if (STATUS_CRITICOS.has(r.STATUS)) tr.className = "critico";
       else if (r.STATUS === "DESLIGADO") tr.className = "desligado";
@@ -1469,19 +1505,19 @@ const APP = (() => {
         <td class="status"><span class="sbadge ${_badgeCls(r.STATUS)}">${r.STATUS}</span></td>
         <td>${String(r.AUDITORIA).substring(0,115)}</td>
         ${_confCellFunc(r)}`;
-      tr.addEventListener("click", () => _selecionarFunc(r, tr));
+      sum.view.bind(tr, r);
       tbody.appendChild(tr);
     });
+    sum.view.finish(document.getElementById("tabelaPrincipal"));
     _bindConfDelegation("tabelaBody");
     _atualizarConfContador();
     document.getElementById("countTabela").textContent =
-      `${Math.min(1000,tab.length)} de ${tab.length} linhas exibidas (total na análise: ${S.liquido.length})`;
+      `${sum.page.length} de ${tab.length} linhas exibidas (total na análise: ${S.liquido.length})`;
   }
 
   function _selecionarFunc(r, tr) {
     S.funcSelecionado = r;
-    document.querySelectorAll("#tabelaBody tr").forEach(t => t.classList.remove("selected"));
-    tr.classList.add("selected");
+
     _renderDrill(r);
   }
 
@@ -1492,7 +1528,7 @@ const APP = (() => {
       `Mat. ${dMat} — ${dNome}  |  Status: ${r.STATUS}  |  ` +
       `Baseline: ${fmtBRL(r.MEDIA_BASELINE)}  |  Líquido ${S.mesAlvo}: ${fmtBRL(r.LIQUIDO_ALVO)} (${fmtPct(r.VAR_PCT)})  |  ${r.AUDITORIA}`;
     renderDrillFuncionario("chartDrill", r, S.mesesDetectados, S.mesAlvo, r.MEDIA_BASELINE);
-    const funcRows = S.dfFiltrado.filter(row => getMatricula(row) === r.Matrícula && getNome(row) === r.Nome);
+    const funcRows = S.dfFiltrado.filter(row => funcKey(row) === funcKey(r));
     const crs   = [...new Set(funcRows.map(row => row["C.R."] || "").filter(Boolean))].sort();
     const clss  = [...new Set(funcRows.map(row => row["Clas."] || "").filter(Boolean))].sort();
     const procs = [...new Set(funcRows.map(row => row["Processo"] || "").filter(Boolean))].sort();
@@ -1502,7 +1538,7 @@ const APP = (() => {
     document.getElementById("entryDrillVerba").value = "";
     _renderConfBox(r);
     const vh = document.getElementById("btnVerHolerite");
-    if (vh) { vh.style.display = "inline-block"; vh.onclick = () => _verHolerite(r.Matrícula, r.Nome); }
+    if (vh) { vh.style.display = "inline-block"; vh.onclick = () => _verHolerite(r.Matrícula, r.Nome, r.Empresa); }
     _renderizarDrillVerbas();
   }
 
@@ -1516,9 +1552,9 @@ const APP = (() => {
     const tbody = document.getElementById("drillBody"); tbody.innerHTML = "";
     if (!S.funcSelecionado) return;
     const r = S.funcSelecionado;
-    let rows = S.dfFiltrado.filter(row => getMatricula(row) === r.Matrícula && getNome(row) === r.Nome);
+    let rows = S.dfFiltrado.filter(row => funcKey(row) === funcKey(r));
     const colAlvo = `${S.mesAlvo} - Valor`;
-    rows = rows.filter(row => Math.abs(row[colAlvo] || 0) > 0.001);
+    // Zero é um lançamento selecionável; não elimina contribuição nula.
     // Meses anteriores (3)
     const idxAlvo = S.mesesDetectados.indexOf(S.mesAlvo);
     const meses3 = S.mesesDetectados.slice(Math.max(0, idxAlvo - 3), idxAlvo);
@@ -1560,7 +1596,11 @@ const APP = (() => {
         return oa !== ob ? oa - ob : String(a["Código"]).localeCompare(String(b["Código"]));
       });
     }
-    rows.forEach(row => {
+    const sum = _sumView('verbas-detalhe', rows, {
+      key: row => JSON.stringify([RowSelection.sourceId(row), S.mesAlvo]), values: _sumPayroll, emptyGroup: 'Folha (proventos − descontos)',
+      render: _renderizarDrillVerbas, investigate: row => RowSelection.openDetail('Lançamento de folha · ' + S.mesAlvo, row)
+    });
+    sum.page.forEach(row => {
       const tr = document.createElement("tr");
       const cl = String(row["Clas."] || "").trim().toUpperCase();
       tr.className = cl === "PGTO" ? "row-pgto" : cl === "DESC" ? "row-desc" : "row-outro";
@@ -1574,8 +1614,9 @@ const APP = (() => {
         ${valsM.map(v => `<td class="num">${v}</td>`).join("")}
         <td class="num drillAlvo">${fmtBRL(row[colAlvo])}</td>
         ${_confCellLinha(r, row)}`;
-      tbody.appendChild(tr);
+      sum.view.bind(tr, row); tbody.appendChild(tr);
     });
+    sum.view.finish(document.getElementById("tabelaDrill"));
     _bindConfLinhaDelegation();
     _bindSort("#tabelaDrill", S.drillSort, _renderizarDrillVerbas);
   }

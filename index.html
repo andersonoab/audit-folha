@@ -7,10 +7,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <script src="vendor/papaparse.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
+  <script src="vendor/xlsx.full.min.js"></script>
+  <script src="vendor/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="row-selection.css">
+<script src="row-selection.js"></script>
 </head>
 <body>
 
@@ -146,7 +148,7 @@
         <div class="desc-kpis" id="descKpis"></div>
         <div class="hint-text" style="font-size:11px;margin:10px 0 4px">Dispersão — valor do desconto × comprometimento do líquido habitual. Pontos vinho estão fora do padrão e entram na revisão.</div>
         <div class="chart-container" style="height:280px"><canvas id="chartDescontos"></canvas></div>
-        <div class="hint-text" style="font-size:11px;margin:10px 0 4px"><span id="descCount"></span> — clique numa linha para abrir o holerite do colaborador.</div>
+        <div class="hint-text" style="font-size:11px;margin:10px 0 4px"><span id="descCount"></span> — clique seleciona para soma; duplo clique abre o holerite do colaborador.</div>
         <div class="table-wrap" style="max-height:320px">
           <table class="data-table" id="tabelaDescontos">
             <thead><tr>
@@ -254,7 +256,7 @@
 
       <!-- Drill-down -->
       <div class="section-title" style="margin-top:18px">Drill-down do funcionário selecionado</div>
-      <div class="drill-info" id="drillInfo">(selecione um funcionário na tabela acima)</div>
+      <div class="drill-info" id="drillInfo">(duplo clique em um funcionário na tabela acima)</div>
       <div class="conf-box" id="confBox" style="display:none">
         <label class="conf-box-chk"><input type="checkbox" id="confBoxChk"> Marcar funcionário como conferido</label>
         <span class="conf-box-info" id="confBoxInfo"></span>
@@ -330,7 +332,7 @@
           <button class="btn-sm btn-primary" onclick="APP.selecionarClasseVerbas('PGTO')">PGTO</button>
           <button class="btn-sm btn-secondary-sm" onclick="APP.selecionarClasseVerbas('DESC')">DESC</button>
           <button class="btn-sm btn-secondary-sm" onclick="APP.selecionarClasseVerbas('OUTRO')">OUTRO</button>
-          <button class="btn-sm btn-secondary-sm" onclick="APP.limparSelecaoVerbas()">Limpar seleção</button>
+          <button class="btn-sm btn-secondary-sm" onclick="APP.limparSelecaoVerbas()">Limpar verbas</button>
         </div>
         <div class="listbox-container">
           <select id="listboxVerbas" class="verbas-listbox" size="7" multiple></select>

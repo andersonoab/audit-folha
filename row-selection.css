@@ -1,0 +1,15 @@
+/* Cor reservada ao estado; hover e seleção são distintos. */
+.sum-toolbar{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:12px;border:1px solid #ccc;background:#fff;color:#333;margin:10px 0 0;font-size:13px}
+.sum-label{font-weight:700;color:#003c64}.sum-output{display:flex;flex-wrap:wrap;gap:8px 20px;flex:1}.sum-count{white-space:nowrap}.sum-total{font-weight:600}.sum-notice{flex-basis:100%;color:#7d0041}.sum-notice:empty{display:none}.sum-toolbar small{flex-basis:100%;color:#646464;font-size:11px}
+.sum-toolbar button,.sum-pager button{padding:6px 10px;border:1px solid #999;border-radius:4px;background:#fff;color:#003c64;cursor:pointer;font:inherit}.sum-toolbar button:disabled,.sum-pager button:disabled{opacity:.45;cursor:default}
+.sum-pager{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:8px 0 15px;font-size:12px;color:#333}.sum-pager select{padding:5px;border:1px solid #999;background:#fff;color:#333}
+.sum-table .sum-cell,.sum-table .sum-head{width:45px;min-width:45px;text-align:center}.sum-check{width:16px;height:16px;cursor:pointer;accent-color:#0083ca}
+.sum-table tbody tr.sum-selectable{cursor:pointer}.sum-table tbody tr.sum-selectable:hover>td{background:#edf2f5!important}
+.sum-table tbody tr.sum-selected>td{background:#c8e4f4!important}.sum-table tbody tr.sum-selected:hover>td{background:#b8dcf0!important}
+.sum-table tbody tr.sum-selected>td:first-child{box-shadow:inset 4px 0 #0083ca}
+.sum-table tbody tr.sum-selectable:focus-visible{outline:2px solid #003c64;outline-offset:-2px}.sum-toolbar button:focus-visible,.sum-pager button:focus-visible,.sum-check:focus-visible{outline:2px solid #003c64;outline-offset:2px}
+.sum-table tbody tr.sum-selectable.selected:not(.sum-selected)>td,.sum-table tbody tr.sum-selectable.line-selected:not(.sum-selected)>td{background:transparent}
+@media print{.sum-pager,.sum-clear,.sum-toolbar small,.sum-check{display:none}.sum-toolbar{break-inside:avoid}.sum-table tbody tr.sum-selected>td{background:#fff!important;font-weight:700}}
+.sum-detail{max-width:min(750px,92vw);max-height:85vh;padding:22px;border:1px solid #999;border-radius:8px;color:#333}.sum-detail::backdrop{background:rgba(0,0,0,.35)}.sum-detail dl{display:grid;grid-template-columns:minmax(120px,1fr) 2fr;gap:8px 20px;margin:18px 0}.sum-detail dt{font-weight:600}.sum-detail dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.sum-detail button{padding:8px 18px;background:#003c64;color:#fff;border:0;border-radius:4px}
+/* A referência Líquido permanece em negrito; somente Soma usa azul de seleção. */
+.sum-table tbody tr.liquido:not(.sum-selected)>td{background:#fff!important}

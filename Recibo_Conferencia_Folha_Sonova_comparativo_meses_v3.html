@@ -7,8 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rufina:wght@400;700&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="vendor/papaparse.min.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
 <style>
 :root{
   --p:#0083CA; --dk:#003C64; --md:#005A64; --lt:#6EB4DC;
@@ -142,16 +142,16 @@ table.codes tr.liquido.line-ok td:not(.row-sel){background:#fff1bd!important}
 .table-scroll table.codes{min-width:1180px}
 .table-scroll.no-compare{overflow-x:hidden;scrollbar-gutter:auto}
 .table-scroll.no-compare table.codes{min-width:0;width:100%;table-layout:auto}
-.table-scroll.no-compare table.codes th:nth-child(2),
-.table-scroll.no-compare table.codes td:nth-child(2){width:72px}
-.table-scroll.no-compare table.codes th:nth-child(4),
-.table-scroll.no-compare table.codes td:nth-child(4){width:105px}
+.table-scroll.no-compare table.codes th:nth-child(3),
+.table-scroll.no-compare table.codes td:nth-child(3){width:72px}
 .table-scroll.no-compare table.codes th:nth-child(5),
-.table-scroll.no-compare table.codes td:nth-child(5){width:80px}
+.table-scroll.no-compare table.codes td:nth-child(5){width:105px}
 .table-scroll.no-compare table.codes th:nth-child(6),
-.table-scroll.no-compare table.codes td:nth-child(6){width:120px}
+.table-scroll.no-compare table.codes td:nth-child(6){width:80px}
 .table-scroll.no-compare table.codes th:nth-child(7),
-.table-scroll.no-compare table.codes td:nth-child(7){width:105px}
+.table-scroll.no-compare table.codes td:nth-child(7){width:120px}
+.table-scroll.no-compare table.codes th:nth-child(8),
+.table-scroll.no-compare table.codes td:nth-child(8){width:105px}
 .table-scroll::-webkit-scrollbar{height:12px}
 .table-scroll::-webkit-scrollbar-track{background:#eef1f4}
 .table-scroll::-webkit-scrollbar-thumb{background:#9aa6b2;border-radius:8px;border:2px solid #eef1f4}
@@ -338,7 +338,15 @@ table.ov.div td.motivo{font-size:11px;color:var(--mu);max-width:260px}
   .side{display:none}
   .rec-info{grid-template-columns:repeat(2,1fr)}
 }
+/* Seleção adiciona uma coluna antes de Calc. */
+.sum-table.codes.mm .sum-cell,.sum-table.codes.mm .sum-head{position:sticky;left:0;z-index:5;background:#fff}
+.sum-table.codes.mm th.sum-head{background:#003c64;color:#fff;z-index:6}
+.sum-table.codes.mm .s0{left:45px!important}.sum-table.codes.mm .s1{left:85px!important}.sum-table.codes.mm .s2{left:145px!important}.sum-table.codes.mm .s3{left:363px!important}
+.sum-table.codes tr:nth-child(even) td{background:#fff}
+.sum-table.codes .row-sel{cursor:pointer}
 </style>
+<link rel="stylesheet" href="row-selection.css">
+<script src="row-selection.js"></script>
 </head>
 <body>
 
@@ -692,6 +700,7 @@ function groupKey(r){
   return [r[COL.empresa]||"",r[COL.matricula]||"",r[COL.cpf]||"",r[COL.processo]||""].join("||");
 }
 function buildRecibos(){
+  RowSelection.newDataset();
   const m={}; const order=[];
   RAW.forEach(r=>{
     const k=groupKey(r);
@@ -829,8 +838,8 @@ function calcPanelHtml(rec,periodLabel){
   }
   return `<div class="calc-box">
     <div class="calc-card"><div class="l">Líquido localizado</div><div class="v">${liq.found?fmtBRL(liq.value):'-'}</div></div>
-    <div class="calc-card"><div class="l">Créditos selecionados</div><div class="v">${fmtBRL(c.creditos+c.outros)}</div></div>
-    <div class="calc-card"><div class="l">Descontos selecionados</div><div class="v">${fmtBRL(c.descontos)}</div></div>
+    <div class="calc-card"><div class="l">Créditos marcados (Calc.)</div><div class="v">${fmtBRL(c.creditos+c.outros)}</div></div>
+    <div class="calc-card"><div class="l">Descontos marcados (Calc.)</div><div class="v">${fmtBRL(c.descontos)}</div></div>
     <div class="calc-card ${cls}"><div class="l">Resultado</div><div class="v">${fmtBRL(c.calculado)}</div></div>
     <div class="calc-card ${cls}"><div class="l">Diferença</div><div class="v">${liq.found&&c.count>0?fmtBRL(dif):'-'}</div></div>
     <div class="calc-note"><b>${status}</b><br>Marque na coluna <b>Calc.</b> as linhas que devem compor a conta. Regra aplicada: PGTO/PROV/OUTRO somam; DESC subtrai; a linha Líquido é usada apenas como referência.</div>
@@ -887,7 +896,7 @@ function verbaFilterHtml(rec){
     <span class="chips">${chips}</span>
     <input class="vsearch" id="vSearch" placeholder="Filtrar verba por código ou descrição..." value="${esc(VIEW.q||'')}">
     <label class="vtog"><input type="checkbox" id="vOnlyChk" ${VIEW.onlyChecked?'checked':''}> Só marcadas (Calc.)</label>
-    <button class="vreset" id="vReset" title="Restaurar classificadores, busca e meses comparados">Limpar seleção</button>
+    <button class="vreset" id="vReset" title="Restaurar classificadores, busca e meses comparados">Limpar filtros</button>
   </div>`;
 }
 
@@ -965,7 +974,7 @@ function mmRows(rec,lines,periods){
     const kind=clasKind(l.clas);
     const lk=lineKey(l,activePeriod);
     const checked=lineState(rec,l,activePeriod);
-    const selected=selectedLineKey===lk;
+    const selected=false;
     const liquido=isLiquidoLine(l);
     const seq=periods.map(p=>(l.per[p]||{valor:0}).valor||0);
     const cells=periods.map((v0,i)=>{
@@ -998,7 +1007,7 @@ function smRows(rec,lines){
     const kind=clasKind(l.clas);
     const lk=lineKey(l,activePeriod);
     const checked=lineState(rec,l,activePeriod);
-    const selected=selectedLineKey===lk;
+    const selected=false;
     const liquido=isLiquidoLine(l);
     return `<tr data-lk="${esc(lk)}" class="${checked?'line-ok':''} ${selected?'line-selected':''} ${liquido?'liquido':''}">
       <td class="row-sel"><input type="checkbox" class="line-check" data-lk="${esc(lk)}" ${checked?'checked':''} title="Incluir/remover esta linha no cálculo de conferência"></td>
@@ -1063,6 +1072,14 @@ function applyFilters(){
     if(q){ const hay=norm(r.nome+" "+r.matricula+" "+r.cpf); if(hay.indexOf(q)<0) return false; }
     return true;
   });
+  if(selKey && !FILT.some(r=>r.key===selKey)) selKey=FILT[0]?.key || null;
+  renderRecibo();
+  if(RowSelection.table('recibo-visao-geral').options) {
+    const wasOpen=document.getElementById('overlay').classList.contains('show');
+    openOverview(); if(!wasOpen) document.getElementById('overlay').classList.remove('show');
+  }
+  if(RowSelection.table('recibo-consulta-verbas').options) { buildVerbaQuery(); renderVerbaBody(); }
+  if(RowSelection.table('recibo-divergencias').options) { buildDivergencias(); renderDivergencias(); }
 }
 function render(){
   document.getElementById("empty").style.display="none";
@@ -1076,7 +1093,7 @@ function render(){
     PERIODS.length>1 ? `${PERIODS.length} períodos detectados · Mês base: ${activePeriod}` : `Período: ${PERIODS[0].label}`;
   applyFilters();
   renderList();
-  if(!selKey || !RECIBOS.find(r=>r.key===selKey)) selKey=FILT.length?FILT[0].key:null;
+  if(!selKey || !FILT.find(r=>r.key===selKey)) selKey=FILT.length?FILT[0].key:null;
   renderRecibo();
   updateStats();
 }
@@ -1105,11 +1122,27 @@ function updateStats(){
   document.getElementById("progBar").style.width=pct+"%";
 }
 
+function sumLine(l) {
+  return RowSelection.payroll((l.per[activePeriod] || {}).valor || 0, l.clas, l.codigo, l.descricao, isLiquidoLine(l));
+}
+function sumRecibo(rec) {
+  const parts = rec.lines.filter(l => !isLiquidoLine(l) && ['pgto','desc'].includes(clasKind(l.clas))).map(sumLine);
+  return { ['Líquido calculado · ' + activePeriod]: RowSelection.combine(parts)['Folha (proventos − descontos)'] || 0n };
+}
+function sumFinish(view, table, page) {
+  if (page.length) [...table.tBodies[0].rows].forEach((tr, i) => view.bind(tr, page[i]));
+  view.finish(table);
+}
 /* ---------- recibo ---------- */
 function renderRecibo(){
   const area=document.getElementById("reciboArea");
-  const rec=RECIBOS.find(r=>r.key===selKey);
-  if(!rec){ area.innerHTML=""; return; }
+  const rec=FILT.find(r=>r.key===selKey);
+  if(!rec){
+    const view=RowSelection.table('recibo-linhas'); view.prepare([], {key: RowSelection.sourceId, values: sumLine, render:renderRecibo});
+    area.innerHTML="";
+    if(view.message){ const notice=document.createElement('p'); notice.setAttribute('role','status'); notice.textContent=view.message; area.appendChild(notice); }
+    return;
+  }
   const idx=FILT.findIndex(r=>r.key===selKey);
   const done=!!(CONF[rec.key]&&CONF[rec.key].conferido);
   const obs=(CONF[rec.key]&&CONF[rec.key].obs)||"";
@@ -1123,12 +1156,18 @@ function renderRecibo(){
   const monthTools=monthToolsHtml();
   const verbaFilterBar=verbaFilterHtml(rec);
   const orderedAll=sortLines(rec.lines,activePeriod);
-  const orderedLines=orderedAll.filter(l=> isLiquidoLine(l) || (lineVisibleByFilter(l) && (!VIEW.onlyChecked || lineState(rec,l,activePeriod))) );
+  let orderedLines=orderedAll.filter(l=> isLiquidoLine(l) || (lineVisibleByFilter(l) && (!VIEW.onlyChecked || lineState(rec,l,activePeriod))) );
   const validLineKeys=orderedLines.map(l=>lineKey(l,activePeriod));
   if(!selectedLineKey || validLineKeys.indexOf(selectedLineKey)<0) selectedLineKey=validLineKeys[0]||null;
   const multi=comparePeriods.length>0;
   const visP=visiblePeriodsChrono();
   const hiddenN=orderedAll.length-orderedLines.length;
+  const sumView=RowSelection.table('recibo-linhas');
+  orderedLines=sumView.prepare(orderedLines, {
+    key: l=>JSON.stringify([rec.key, activePeriod, RowSelection.sourceId(l)]), values:sumLine,
+    label:'Valor · '+activePeriod, render:renderRecibo,
+    investigate:l=>RowSelection.openDetail('Lançamento · '+activePeriod, {Empresa:rec.empresa, Matrícula:rec.matricula, Nome:rec.nome, Código:l.codigo, Descrição:l.descricao, Classe:l.clas, ...l.per})
+  });
   const tableHtml = multi
     ? `<div class="table-scroll has-compare mm" title="Role na horizontal para ver todos os meses; as colunas de identificação ficam fixas.">
         <table class="codes mm">
@@ -1179,7 +1218,7 @@ function renderRecibo(){
     ${monthTools}
     ${verbaFilterBar}
     ${filterInfo}
-    <div class="line-count">Linhas selecionadas para cálculo: <b>${lineProg.ok}</b> de <b>${lineProg.total}</b> (${lineProg.pct}%). Clique na linha para destacar; marque <b>Calc.</b> para validar contra o Líquido.</div>
+    <div class="line-count">Linhas marcadas em Calc. (conferência): <b>${lineProg.ok}</b> de <b>${lineProg.total}</b> (${lineProg.pct}%). Clique na linha para somar; <b>Calc.</b> mantém a conferência independente.</div>
     ${calcPanel}
     ${tableHtml}
     <div class="totals">
@@ -1229,13 +1268,7 @@ function renderRecibo(){
     else { TABLE_SORT={key:k,dir:1}; }
     renderRecibo();
   });
-  area.querySelectorAll("table.codes tbody tr").forEach(tr=>{
-    tr.onclick=e=>{
-      const lk=tr.dataset.lk;
-      selectedLineKey=lk;
-      renderRecibo();
-    };
-  });
+  sumFinish(sumView, area.querySelector('table.codes'), orderedLines);
   area.querySelectorAll("td.row-sel").forEach(td=>td.onclick=e=>{
     e.stopPropagation();
     const chk=td.querySelector(".line-check");
@@ -1268,12 +1301,15 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;",
 function openOverview(){
   document.getElementById("ovPeriod").textContent=activePeriod||"";
   const tb=document.getElementById("ovTable");
-  const rows=RECIBOS.map(r=>{ const t=totals(r,activePeriod); const c=CONF[r.key]||{};
+  const rows=FILT.map(r=>{ const t=totals(r,activePeriod); const c=CONF[r.key]||{};
     return {r,t,done:!!c.conferido,obs:c.obs||""}; });
+  const sumView=RowSelection.table('recibo-visao-geral');
+  const page=sumView.prepare(rows, {key:x=>JSON.stringify([x.r.key,activePeriod]), values:x=>sumRecibo(x.r), label:'Líquido calculado · '+activePeriod, render:openOverview,
+    investigate:x=>{selKey=x.r.key;selectedLineKey=null;closeOverview();render();}});
   tb.innerHTML=`<thead><tr>
     <th>Status</th><th>Matrícula</th><th>Nome</th><th>Empresa</th><th>Processo</th>
     <th>PGTO</th><th>Soma bruta</th><th>Obs.</th></tr></thead><tbody>
-    ${rows.map(x=>`<tr class="${x.done?'done':''}" data-k="${esc(x.r.key)}">
+    ${page.map(x=>`<tr class="${x.done?'done':''}" data-k="${esc(x.r.key)}">
       <td>${x.done?'Conferido':'Pendente'}</td>
       <td>${esc(x.r.matricula)}</td>
       <td>${esc(dispName(x.r.nome))}</td>
@@ -1283,7 +1319,7 @@ function openOverview(){
       <td class="r">${fmtBRL(x.t.grand)}</td>
       <td>${esc(x.obs)}</td></tr>`).join("")}
     </tbody>`;
-  tb.querySelectorAll("tr[data-k]").forEach(tr=>tr.onclick=()=>{ selKey=tr.dataset.k; selectedLineKey=null; closeOverview(); render(); });
+  sumFinish(sumView,tb,page);
   document.getElementById("overlay").classList.add("show");
 }
 function closeOverview(){ document.getElementById("overlay").classList.remove("show"); }
@@ -1331,7 +1367,7 @@ function buildVerbaQuery(){
       const cmp=comparePeriods.map(p=>(l.per[p]||{valor:0}).valor||0);
       const fk=(l.codigo||"-")+" — "+(l.descricao||"-");
       foundMap[fk]=(foundMap[fk]||0)+1;
-      VQ_ROWS.push({r, codigo:l.codigo, descricao:l.descricao, clas:l.clas, base, cmp});
+      VQ_ROWS.push({r, line:l, codigo:l.codigo, descricao:l.descricao, clas:l.clas, base, cmp});
     });
   });
   VQ_FOUND=Object.keys(foundMap).map(k=>({label:k,n:foundMap[k]})).sort((a,b)=>b.n-a.n);
@@ -1359,7 +1395,11 @@ function renderVerbaBody(){
   const foot=document.getElementById("vqFoot");
   if(!norm(VQ.q)){
     found.innerHTML="Digite o código ou a descrição de uma verba para listar quem a possui.";
-    tbl.innerHTML=""; foot.textContent=""; return;
+    tbl.innerHTML=""; foot.textContent="";
+    const v=RowSelection.table('recibo-consulta-verbas');v.prepare([], {key:RowSelection.sourceId,values:()=>({}),render:renderVerbaBody});
+    if(v.bar){ v.bar.remove(); v.bar=null; } if(v.pager){v.pager.remove();v.pager=null;}
+    if(v.message) foot.textContent=v.message;
+    return;
   }
   found.innerHTML = VQ_FOUND.length
     ? "<b>Rubricas encontradas:</b> " + VQ_FOUND.map(f=>`${esc(f.label)} <b>(${f.n})</b>`).join(" · ")
@@ -1367,6 +1407,9 @@ function renderVerbaBody(){
 
   const cmpHead=comparePeriods.map(p=>`<th class="r">${esc(p)}<br>Valor</th>`).join("");
   const rows=vqSorted();
+  const sumView=RowSelection.table('recibo-consulta-verbas');
+  const page=sumView.prepare(rows, {key:x=>JSON.stringify([x.r.key,activePeriod,RowSelection.sourceId(x.line)]), values:x=>sumLine(x.line), label:'Valor · '+activePeriod, render:renderVerbaBody,
+    investigate:x=>{selKey=x.r.key;selectedLineKey=null;closeVerbaQuery();render();}});
   tbl.innerHTML =
     `<thead><tr>
       <th data-sk="empresa" style="cursor:pointer">Empresa${vqArrow("empresa")}</th>
@@ -1379,7 +1422,7 @@ function renderVerbaBody(){
       <th class="r" data-sk="valor" style="cursor:pointer">Valor ${esc(activePeriod||"")}${vqArrow("valor")}</th>
       ${cmpHead}
     </tr></thead>
-    <tbody>${ rows.map(x=>`<tr data-k="${esc(x.r.key)}" style="cursor:pointer">
+    <tbody>${ page.map(x=>`<tr data-k="${esc(x.r.key)}" style="cursor:pointer">
       <td>${esc(x.r.empresa)}</td>
       <td>${esc(x.r.matricula||"-")}</td>
       <td>${esc(dispName(x.r.nome))}</td>
@@ -1396,9 +1439,7 @@ function renderVerbaBody(){
     if(VQ.sort.key===k) VQ.sort.dir*=-1; else VQ.sort={key:k, dir:(k==="valor"?-1:1)};
     saveVQ(); renderVerbaBody();
   });
-  tbl.querySelectorAll("tr[data-k]").forEach(tr=>tr.onclick=()=>{
-    selKey=tr.dataset.k; selectedLineKey=null; closeVerbaQuery(); render();
-  });
+  sumFinish(sumView,tbl,page);
 
   const people=new Set(rows.map(x=>x.r.key)).size;
   const tot=rows.reduce((s,x)=>s+(x.base||0),0);
@@ -1565,6 +1606,9 @@ function renderDivergencias(){
   }
   const rows=divSorted();
   const tb=document.getElementById("divTable");
+  const sumView=RowSelection.table('recibo-divergencias');
+  const page=sumView.prepare(rows, {key:x=>JSON.stringify([x.r.key,activePeriod]), values:x=>({'Variação do líquido (R$)':RowSelection.cents(x.dAbs)}), label:'Variação do líquido · '+activePeriod, render:renderDivergencias,
+    investigate:x=>{selKey=x.r.key;selectedLineKey=null;closeDivergencias();render();}});
   const maxAbs=Math.max(1,...rows.map(x=>Math.abs(x.dPct)));
   tb.innerHTML=`<thead><tr>
     <th class="sortable" data-sort="flag">Sinal${divSortMark('flag')}</th>
@@ -1576,7 +1620,7 @@ function renderDivergencias(){
     <th class="r sortable" data-sort="dAbs">Δ R$${divSortMark('dAbs')}</th>
     <th class="r sortable" data-sort="dPct">Δ %${divSortMark('dPct')}</th>
     <th class="sortable" data-sort="motivo">Motivo / driver${divSortMark('motivo')}</th></tr></thead>
-    <tbody>${rows.map(x=>{
+    <tbody>${page.map(x=>{
       const up=x.dAbs>0, dir=up?"up":"dn";
       const bw=Math.min(90,Math.round(Math.abs(x.dPct)/maxAbs*90));
       const bc=up?"#005A64":"#8C321E";
@@ -1594,7 +1638,7 @@ function renderDivergencias(){
         <td class="motivo">${esc(x.motivo||"")}</td>
       </tr>`;
     }).join("") || `<tr><td colspan="9" style="color:var(--mu)">Nenhuma divergência para os critérios atuais.</td></tr>`}</tbody>`;
-  tb.querySelectorAll("tr[data-k]").forEach(tr=>tr.onclick=()=>{ selKey=tr.dataset.k; selectedLineKey=null; closeDivergencias(); render(); });
+  sumFinish(sumView,tb,page);
   tb.querySelectorAll("th.sortable").forEach(th=>th.onclick=()=>{
     const k=th.dataset.sort;
     if(DIV_SORT.key===k) DIV_SORT.dir*=-1;
@@ -1714,6 +1758,7 @@ document.getElementById("jsonFile").onchange=e=>{ if(e.target.files[0]) importJs
 document.getElementById("btnReset").onclick=()=>{ if(confirm("Limpar TODAS as conferências e observações salvas? Esta ação não pode ser desfeita.")){ CONF={}; save(); render(); } };
 
 document.addEventListener("keydown",e=>{
+  if(document.querySelector("dialog.sum-detail[open]")) return;
   if(e.key==="Escape"){
     if(document.getElementById("verbaOverlay").classList.contains("show")) return closeVerbaQuery();
     if(document.getElementById("divOverlay").classList.contains("show")) return closeDivergencias();

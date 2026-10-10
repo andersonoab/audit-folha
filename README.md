@@ -1,3 +1,73 @@
+# Auditoria de Folha — seleção e totalização de linhas
+
+Esta entrega integra a seleção para soma às **interfaces web** do projeto. Extraia o ZIP inteiro e abra **index.html** por duplo clique no Chrome ou Edge atual. Não é necessário instalar Python, Node, servidor ou fazer build para usar a interface web.
+
+O recibo auxiliar está em **Recibo_Conferencia_Folha_Sonova_comparativo_meses_v3.html**. As bibliotecas de CSV, gráficos e Excel acompanham a pasta `vendor`; as fontes de internet são opcionais e têm fallback local.
+
+## Uso da seleção
+
+- Clique em uma célula da linha para selecionar/desmarcar, cumulativamente, sem Ctrl.
+- A coluna **Soma** contém o checkbox da seleção numérica. **Calc.** e **Conf.** continuam pertencendo à conferência original e têm estado independente.
+- A barra mostra a quantidade de linhas e **Total selecionado**, calculado da base em centavos inteiros. Zeros contam como linhas selecionadas.
+- **Limpar seleção** limpa somente a soma daquela tabela.
+- **Espaço** alterna a linha focada; **Enter** investiga. Checkboxes e botões usam Tab e o teclado nativo.
+- Duplo clique investiga sem alterar a seleção. Clique de linha aguarda **360 ms** para ser distinguido do duplo clique; checkbox e teclado respondem imediatamente. Não há atraso adicional no cálculo após confirmar o gesto.
+- Ordenação, anonimização, paginação e redesenho preservam IDs e seleções. Ao sair do resultado filtrado, o registro é removido da seleção e a barra informa a quantidade removida.
+- A seleção é mantida durante a sessão; uma nova importação ou recarga da página inicia uma seleção vazia. As conferências salvas continuam no mecanismo original.
+
+## Tabelas integradas e medida escolhida
+
+| Interface | Tabela | Campo/natureza totalizada |
+| --- | --- | --- |
+| Audit | Descontos para revisar | Desconto no mês-alvo, com contribuição negativa |
+| Audit | Tabela detalhada por funcionário | Líquido calculado pela composição PGTO/DESC da fonte |
+| Audit | Verbas do funcionário | Valor do mês-alvo de cada ocorrência |
+| Audit | Colaboradores das verbas escolhidas | Composição das verbas no mês-alvo, separada por natureza |
+| Audit | Conferência | Líquido calculado pela composição PGTO/DESC da fonte |
+| Audit | Holerite | Valor do mês-alvo de cada ocorrência |
+| Recibo auxiliar | Lançamentos | Valor do período principal; meses comparados não entram juntos |
+| Recibo auxiliar | Visão geral | Líquido calculado pela composição PGTO/DESC |
+| Recibo auxiliar | Consulta de verba | Valor da verba no período principal |
+| Recibo auxiliar | Divergências | Diferença monetária do líquido; percentuais não são somados |
+
+PGTO preserva o sinal da origem. DESC contribui negativamente: quando a fonte já envia valor negativo, o componente não inverte seu sinal novamente. A verba 9950 fica em subtotal separado de referência. BASE, PROV, ENCAR e OUTRO são separados por classificação/rubrica para impedir misturas de naturezas. Não existe um total geral que some folha com bases de cálculo.
+
+As tabelas que antes truncavam em 500/1.000/2.000 linhas agora permitem navegar por todo o resultado usando páginas de 50, 100, 250 ou 500 registros. Somar uma página não limpa a seleção das demais.
+
+A seleção não muda os indicadores, parâmetros estatísticos, filtros da análise, conferências nem a população dos relatórios exportados. A exportação continua seguindo o contrato anterior do aplicativo, independentemente da seleção para soma. A investigação entre tabelas não força filtros da tabela principal.
+
+## Arquitetura e reaproveitamento
+
+`row-selection.js` expõe `RowSelection.SelectionModel` e `RowSelection.table(nome)`; `row-selection.css` define estados de seleção, hover, foco e impressão. O modelo usa Set de IDs e Map de registros normalizados, sem gravar propriedades na fonte. IDs de ocorrências são mantidos em WeakMap. IDs de agregados incluem empresa, matrícula, nome e competência; a análise de verbas inclui ainda o conjunto de verbas escolhido.
+
+Fluxo de integração: `view.prepare(resultadoFiltrado, {key, values, render, investigate})` retorna a página; `view.bind(tr, registro)` conecta cada linha; `view.finish(table)` conecta a barra e a navegação. `values` deve retornar um objeto de subtotais em centavos BigInt. Use `RowSelection.cents(numeroNormalizado)` e `RowSelection.payroll(...)`; não leia valores do DOM.
+
+## Validação reproduzível
+
+As bases em `examples` são fictícias e incluem proventos, descontos, zeros, bases, duplicatas e a mesma matrícula/nome em dois CNPJs. Consulte **VALIDACAO.md** para o resultado e os limites de cobertura.
+
+Teste sem navegador (Node):
+
+```bash
+node tests/selection-model.test.cjs
+```
+
+Testes de integração (opcional, somente para desenvolvimento): instale Playwright no seu ambiente de testes e seu Chromium, depois execute:
+
+```bash
+npm install --no-save playwright
+npx playwright install chromium
+node tests/browser.test.cjs
+```
+
+É possível definir `CHROMIUM_PATH` para usar um Chromium já instalado.
+
+## Arquivos anteriores
+
+`audit-folha.py` (Streamlit) e `auditCK.py` (CustomTkinter) estão preservados byte a byte. A nova interação foi integrada ao aplicativo HTML e ao recibo HTML, **não** às interfaces Python. As instruções históricas abaixo continuam documentando a versão desktop anterior.
+
+---
+
 # Auditoria de Folha — Desktop App
 
 Aplicativo desktop em Python para auditoria de folha de pagamento, com confronto entre folha calculada (mês-alvo) e folhas implantadas (baseline), análise de outliers por critérios estatísticos de mercado, drill-down por funcionário e por verba, e exportação para Excel.
